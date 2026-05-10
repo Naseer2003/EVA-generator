@@ -1,0 +1,32 @@
+# NestJS / Node backend .gitignore
+
+# Dependencies
+/node_modules
+/package-lock.json
+
+# Build output
+/dist
+/build
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Runtime data
+/uploads
+/scratch
+/temp
+
+# Environment
+.env
+.env.test
+.env.production
+
+# IDE
+.vscode
+.idea
+
+# Prisma
+/prisma/migrations

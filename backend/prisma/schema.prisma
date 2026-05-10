@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  email     String    @unique
+  password  String
+  firstName String    @map("first_name")
+  lastName  String    @map("last_name")
+  role      Role      @default(ENGINEER)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  datasets  Dataset[]
+  evaRuns   EvaRun[]
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+
+  @@map("users")
+}
+
+model Tenant {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now()) @map("created_at")
+  assets    Asset[]
+  datasets  Dataset[]
+  users     User[]
+
+  @@map("tenants")
+}
+
+model Asset {
+  id                 String       @id @default(uuid())
+  tenantId           String       @map("tenant_id")
+  name               String
+  location           String?
+  material           String?
+  designThickness    Float?       @map("design_thickness")
+  inspectionInterval Int?         @map("inspection_interval")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  tenant             Tenant       @relation(fields: [tenantId], references: [id])
+  evaRuns            EvaRun[]
+  inspections        Inspection[]
+
+  @@map("assets")
+}
+
+model Inspection {
+  id             String   @id @default(uuid())
+  assetId        String   @map("asset_id")
+  inspectionDate DateTime @map("inspection_date")
+  wallLoss       Float    @map("wall_loss")
+  thickness      Float?
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  asset          Asset    @relation(fields: [assetId], references: [id])
+
+  @@map("inspections")
+}
+
+model Dataset {
+  id          String        @id @default(uuid())
+  tenantId    String        @map("tenant_id")
+  userId      String        @map("user_id")
+  name        String
+  description String?
+  filePath    String        @map("file_path")
+  rowCount    Int?          @map("row_count")
+  status      DatasetStatus @default(PENDING)
+  uploadedAt  DateTime      @default(now()) @map("uploaded_at")
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  user        User          @relation(fields: [userId], references: [id])
+  evaRuns     EvaRun[]
+
+  @@map("datasets")
+}
+
+model EvaRun {
+  id                       String        @id @default(uuid())
+  assetId                  String?       @map("asset_id")
+  datasetId                String        @map("dataset_id")
+  userId                   String        @map("user_id")
+  distribution             String        @default("gumbel")
+  method                   String        @default("mle")
+  confidenceLevel          Float         @default(0.95) @map("confidence_level")
+  nBootstrap               Int           @default(1000) @map("n_bootstrap")
+  mu                       Float?
+  beta                     Float?
+  xi                       Float?
+  adStatistic              Float?        @map("ad_statistic")
+  adPassed                 Boolean?      @map("ad_passed")
+  ksStatistic              Float?        @map("ks_statistic")
+  ksPValue                 Float?        @map("ks_p_value")
+  status                   RunStatus     @default(PENDING)
+  errorMessage             String?       @map("error_message")
+  createdAt                DateTime      @default(now()) @map("created_at")
+  completedAt              DateTime?     @map("completed_at")
+  inspectionDate           DateTime?
+  minimumRequiredThickness Float?
+  originalThickness        Float?
+  result                   Json?
+  serviceStartDate         DateTime?
+  totalPopulation          Int?          @map("total_population")
+  asset                    Asset?        @relation(fields: [assetId], references: [id])
+  dataset                  Dataset       @relation(fields: [datasetId], references: [id])
+  user                     User          @relation(fields: [userId], references: [id])
+  returnLevels             ReturnLevel[]
+
+  @@map("eva_runs")
+}
+
+model ReturnLevel {
+  id             String    @id @default(uuid())
+  evaRunId       String    @map("eva_run_id")
+  returnPeriod   Int       @map("return_period")
+  predictedValue Float     @map("predicted_value")
+  ciLower        Float?    @map("ci_lower")
+  ciUpper        Float?    @map("ci_upper")
+  allConfidences Json?     @map("all_confidences")
+  corrosionRate  Float?    @map("corrosion_rate")
+  eolDate        DateTime? @map("eol_date")
+  evaRun         EvaRun    @relation(fields: [evaRunId], references: [id])
+
+  @@map("return_levels")
+}
+
+enum Role {
+  ADMIN
+  ENGINEER
+  VIEWER
+}
+
+enum DatasetStatus {
+  PENDING
+  VALIDATED
+  INVALID
+}
+
+enum RunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
