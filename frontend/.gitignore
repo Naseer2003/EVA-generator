@@ -1,0 +1,35 @@
+# Next.js frontend .gitignore
+
+# Dependencies
+/node_modules
+/package-lock.json
+
+# Next.js build output
+/.next/
+/out/
+/build
+
+# Production
+.next/
+out/
+
+# Environment variables
+.env*
+!.env.example
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+.DS_Store
+*.pem
