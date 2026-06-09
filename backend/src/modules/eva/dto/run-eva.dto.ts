@@ -10,10 +10,6 @@ export class RunEvaDto {
   assetId?: string;
 
   @IsString()
-  @IsIn(['gumbel', 'gev', 'weibull'])
-  distribution: string = 'gumbel';
-
-  @IsString()
   @IsIn(['mle', 'mom'])
   method: string = 'mle';
 

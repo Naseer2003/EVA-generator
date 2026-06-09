@@ -2,6 +2,13 @@
 preprocessing.py
 ----------------
 Data cleaning, validation, sorting, and maxima extraction.
+
+PVP2006 / ASTM E2283 methodology:
+  - Input data is the measured MAXIMUM WALL LOSS per inspected unit
+    (one value per tube/section — the "Unit Minimum Method").
+  - Data is ranked in ASCENDING order: x1 <= x2 <= ... <= xn
+    (Eq. 1 in PVP2006: xi is the ith data point in ascending order).
+  - Plotting positions: Pi = i / (n + 1)  (Weibull — Eq. 1 PVP2006)
 """
 import numpy as np
 from typing import List
@@ -14,8 +21,8 @@ def preprocess(data: List[float]) -> np.ndarray:
     Full preprocessing pipeline:
       1. Convert to numpy array
       2. Remove NaN / Inf
-      3. Validate sample size
-      4. Sort descending
+      3. Validate minimum sample size
+      4. Sort ASCENDING (required by PVP2006 Eq. 1 — x1 <= x2 <= ... <= xn)
       5. Return clean array
     """
     arr = np.array(data, dtype=np.float64)
@@ -28,24 +35,18 @@ def preprocess(data: List[float]) -> np.ndarray:
             f"Insufficient data: need at least {MIN_SAMPLE_SIZE} valid observations, got {len(arr)}."
         )
 
-    # Sort descending (largest first for EVA)
-    arr = np.sort(arr)[::-1]
+    # Sort ASCENDING — PVP2006 Eq.1: x1 <= x2 <= x3 <= ... <= xn
+    arr = np.sort(arr)
 
-    return arr
-
-
-def extract_maxima(arr: np.ndarray) -> np.ndarray:
-    """
-    For annual maxima method: currently returns the full array.
-    Future: support block maxima / POT extraction.
-    """
     return arr
 
 
 def plotting_positions(n: int) -> np.ndarray:
     """
-    Weibull plotting positions: P_i = i / (n + 1)
-    Returns array of non-exceedance probabilities.
+    Weibull plotting positions per PVP2006 Eq. 1:
+      Pi = i / (n + 1)
+
+    Returns array of cumulative probabilities for ranks 1..n.
     """
     ranks = np.arange(1, n + 1)
     return ranks / (n + 1)
@@ -53,6 +54,9 @@ def plotting_positions(n: int) -> np.ndarray:
 
 def reduced_variates(probs: np.ndarray) -> np.ndarray:
     """
-    Gumbel reduced variate: y_i = -ln(-ln(P_i))
+    Gumbel reduced variate from PVP2006 Eq. 7:
+      yi = -ln(-ln(Pi))
+
+    Used for the probability plot x-axis.
     """
-    return -np.log(-np.log(probs))
+    return -np.log(-np.log(np.clip(probs, 1e-10, 1 - 1e-10)))

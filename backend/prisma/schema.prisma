@@ -86,7 +86,6 @@ model EvaRun {
   assetId                  String?       @map("asset_id")
   datasetId                String        @map("dataset_id")
   userId                   String        @map("user_id")
-  distribution             String        @default("gumbel")
   method                   String        @default("mle")
   confidenceLevel          Float         @default(0.95) @map("confidence_level")
   nBootstrap               Int           @default(1000) @map("n_bootstrap")

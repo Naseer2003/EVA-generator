@@ -4,26 +4,41 @@ from typing import List, Optional, Literal
 # ─── Request ───────────────────────────────────────────────────────────────────
 
 class EVARequest(BaseModel):
+    """
+    EVA Request — PVP2006 analytical methodology.
+
+    data:              List of maximum wall loss values (one per inspected tube).
+    method:            "mle" (default, recommended) or "mom".
+    confidence_levels: Confidence levels for CI — [0.80, 0.90, 0.95, 0.99].
+    return_periods:    Total population sizes N to compute extreme values for.
+    """
     data: List[float]
-    distribution: Literal["gumbel", "gev", "weibull"] = "gumbel"
     method: Literal["mle", "mom"] = "mle"
-    confidence_levels: List[float] = [0.95]
+    confidence_levels: List[float] = [0.80, 0.90, 0.95, 0.99]
     return_periods: List[int] = [2, 5, 10, 25, 50, 100]
-    n_bootstrap: int = 1000
+
 
 # ─── Response Models ───────────────────────────────────────────────────────────
 
 class Parameters(BaseModel):
-    mu: float        # location parameter
-    beta: float      # scale parameter
-    xi: Optional[float] = None  # shape parameter (GEV only)
+    mu: float          # location parameter (lambda in PVP2006)
+    beta: float        # scale parameter (delta in PVP2006)
+    xi: Optional[float] = None  # shape parameter (not used — Gumbel only)
+
 
 class ReturnLevel(BaseModel):
-    period: int
-    value: float
-    ci_lower: float
-    ci_upper: float
-    all_confidences: Optional[dict] = None # Map of level -> upper_bound
+    period: int        # Population size N
+    value: float       # x_N = mu + beta * y_N  (best estimate)
+    ci_lower: float    # x_N - t*SE  (CONSERVATIVE — use for mechanical integrity)
+    ci_upper: float    # x_N + t*SE  (upper bound)
+    se: float          # Standard error SE(x_N)  per PVP2006 Eq. 15
+    all_confidences: Optional[dict] = None  # {level: {"lower": ..., "upper": ..., "t_value": ..., "se": ...}}
+
+
+class PlotData(BaseModel):
+    probability_plot: dict   # observed, theoretical, reduced_variates, probabilities
+    return_level_plot: dict  # curve data + exact period points with CI
+
 
 class GoodnessOfFit(BaseModel):
     ad_statistic: float
@@ -32,14 +47,10 @@ class GoodnessOfFit(BaseModel):
     ks_statistic: float
     ks_p_value: float
 
-class PlotData(BaseModel):
-    probability_plot: dict   # x, y, fitted_x, fitted_y
-    return_level_plot: dict  # periods, values, ci_lower, ci_upper
 
 class EVAResponse(BaseModel):
-    distribution: str
-    method: str
-    n_observations: int
+    method: str              # "mle" or "mom"
+    n_observations: int      # sample size n
     parameters: Parameters
     return_levels: List[ReturnLevel]
     goodness_of_fit: GoodnessOfFit
