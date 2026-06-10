@@ -1,3 +1,19 @@
+import sys
+from pathlib import Path
+
+def check_venv():
+    import os
+    venv_path = Path(__file__).parent / "venv"
+    if not venv_path.exists():
+        print("WARNING: venv not found. Run 'python -m venv venv' first.")
+        print("See README.md for setup instructions.")
+    elif "VIRTUAL_ENV" not in os.environ:
+        print("INFO: venv exists but not activated. Activate with:")
+        print("  Windows: .\\venv\\Scripts\\activate")
+        print("  Unix/Mac: source venv/bin/activate")
+
+check_venv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import health, analyze

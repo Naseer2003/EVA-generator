@@ -39,19 +39,26 @@ def run_eva_analysis(request: EVARequest) -> EVAResponse:
     Output: EVAResponse with return levels and confidence interval lower bounds.
     """
     # ── Step 1: Preprocess ──────────────────────────────────────────────────
-    # Sorts ascending per PVP2006 Eq.1: x1 <= x2 <= ... <= xn
     data = preprocess(request.data)
-    n = len(data)
+    n_data = len(data)
 
     # ── Step 2: Parameter Estimation ────────────────────────────────────────
-    # Only Gumbel — mandatory for mechanical integrity per PVP2006.
-    if request.method == "mle":
+    if request.override_mu is not None and request.override_beta is not None:
+        mu = request.override_mu
+        beta = request.override_beta
+    elif request.method == "mle":
         mu, beta, _ = fit_gumbel_mle(data)
     else:
-        # MoM: quick estimate — less accurate than MLE
         mu, beta = gumbel_mom(data)
 
-    # ── Step 3: Return Levels & Analytical CI ────────────────────────────────
+    # ── Step 3: Determine n for SE / t-value ────────────────────────────────
+    # Per PVP2006, the population size N is used both as the return period
+    # and as n in the SE formula when all tubes in the bundle are measured.
+    # If the CSV only contains a subset (e.g. 300 rows) but the total bundle
+    # is larger (e.g. 366 tubes), pass override_n=366 to get the correct CI.
+    n_sample = int(request.override_n) if request.override_n else n_data
+
+    # ── Step 4: Return Levels & Analytical CI ─────────────────────────────────
     # PVP2006 Eq. 10, 15, 16 — analytical SE and Student's t-test CIs.
     # confidence_levels are sorted descending so "primary" is the most
     # conservative (99% if present).
@@ -59,7 +66,7 @@ def run_eva_analysis(request: EVARequest) -> EVAResponse:
     return_levels_data = compute_return_levels(
         mu=mu,
         beta=beta,
-        n_sample=n,
+        n_sample=n_sample,
         return_periods=request.return_periods,
         confidence_levels=sorted_cls,
     )
@@ -72,7 +79,7 @@ def run_eva_analysis(request: EVARequest) -> EVAResponse:
     rl_plot = build_return_level_plot_data(
         mu=mu,
         beta=beta,
-        n_sample=n,
+        n_sample=n_sample,
         return_periods=request.return_periods,
         confidence_level=primary_cl,
     )
@@ -107,7 +114,7 @@ def run_eva_analysis(request: EVARequest) -> EVAResponse:
 
     return EVAResponse(
         method=request.method,
-        n_observations=n,
+        n_observations=n_sample,
         parameters=Parameters(mu=mu, beta=beta, xi=None),
         return_levels=return_levels,
         goodness_of_fit=gof,

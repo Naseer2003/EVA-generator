@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Search, 
-  BarChart3, 
-  Calendar, 
-  ChevronRight, 
-  Download, 
+import {
+  FileText,
+  Search,
+  BarChart3,
+  Calendar,
+  ChevronRight,
+  Download,
   ExternalLink,
   CheckCircle2,
   AlertCircle,
@@ -37,7 +37,7 @@ export default function ReportsPage() {
     fetchRuns();
   }, []);
 
-  const filteredRuns = runs.filter(run => 
+  const filteredRuns = runs.filter(run =>
     run.datasetName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     run.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -76,9 +76,9 @@ export default function ReportsPage() {
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search by dataset or ID..." 
+            <input
+              type="text"
+              placeholder="Search by dataset or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-4 py-1.5 text-sm outline-none focus:border-blue-500 transition-colors placeholder:text-gray-400"
@@ -145,8 +145,8 @@ export default function ReportsPage() {
                     <td className="p-4 text-center">
                       <div className={cn(
                         "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                        run.status === 'COMPLETED' 
-                          ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                        run.status === 'COMPLETED'
+                          ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
                           : "bg-red-50 text-red-600 border border-red-100"
                       )}>
                         {run.status === 'COMPLETED' ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
@@ -154,7 +154,7 @@ export default function ReportsPage() {
                       </div>
                     </td>
                     <td className="p-4 text-right">
-                      <Link 
+                      <Link
                         href={`/dashboard/analysis/${run.id}`}
                         className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors"
                       >

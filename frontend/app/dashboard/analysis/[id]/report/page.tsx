@@ -2,20 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { 
-  FileText, 
-  Printer, 
-  Download, 
-  ChevronLeft, 
-  Activity, 
-  ShieldCheck, 
+import {
+  FileText,
+  Printer,
+  Download,
+  ChevronLeft,
+  Activity,
+  ShieldCheck,
   AlertCircle,
   Clock,
   MapPin,
   Tag
 } from 'lucide-react';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Area, AreaChart, ScatterChart, Scatter, ReferenceLine, ComposedChart
 } from 'recharts';
 import { evaApi } from '@/lib/api';
@@ -72,7 +72,7 @@ export default function EngineeringReport() {
     <div className="min-h-screen bg-gray-100 py-10 px-4 print:bg-white print:p-0">
       {/* Action Bar */}
       <div className="max-w-[850px] mx-auto mb-6 flex items-center justify-between print:hidden">
-        <button 
+        <button
           onClick={() => router.back()}
           className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"
         >
@@ -80,7 +80,7 @@ export default function EngineeringReport() {
           Back to Analysis
         </button>
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={handlePrint}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-md text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
           >
@@ -96,7 +96,7 @@ export default function EngineeringReport() {
 
       {/* Document Model */}
       <div className="max-w-[850px] mx-auto bg-white shadow-2xl min-h-[1100px] p-[60px] print:shadow-none print:p-0">
-        
+
         {/* Document Header */}
         <div className="flex justify-between items-start border-b-2 border-gray-900 pb-8 mb-10">
           <div className="space-y-4">
@@ -131,9 +131,9 @@ export default function EngineeringReport() {
         <section className="mb-10">
           <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-4">1.0 Executive Summary</h3>
           <p className="text-sm text-gray-600 leading-relaxed">
-            This document outlines the extreme value analysis (EVA) performed on the provided thickness measurements. 
-            The analysis utilizes a <span className="font-bold text-gray-900">Gumbel distribution</span> model estimated via 
-            <span className="font-bold text-gray-900"> {run.method.toUpperCase()}</span> to forecast long-term degradation and predict the remaining useful life (RUL) 
+            This document outlines the extreme value analysis (EVA) performed on the provided thickness measurements.
+            The analysis utilizes a <span className="font-bold text-gray-900">Gumbel distribution</span> model estimated via
+            <span className="font-bold text-gray-900"> {run.method.toUpperCase()}</span> to forecast long-term degradation and predict the remaining useful life (RUL)
             of the asset. The primary objective is to determine if the current inspection frequency satisfies safety integrity level (SIL) requirements.
           </p>
         </section>
@@ -168,19 +168,19 @@ export default function EngineeringReport() {
             <div className="space-y-4">
               <p className="text-sm text-gray-600 font-bold uppercase tracking-tight">3.1 Diagnostic Methodology</p>
               <p className="text-xs text-gray-500 leading-relaxed">
-                The integrity of this forecast relies on the <span className="text-gray-900 font-bold">Anderson-Darling (AD)</span> test, which is specifically sensitive to the "tail" of the distribution—the area where extreme wall loss occurs. 
+                The integrity of this forecast relies on the <span className="text-gray-900 font-bold">Anderson-Darling (AD)</span> test, which is specifically sensitive to the "tail" of the distribution—the area where extreme wall loss occurs.
               </p>
-              
+
               <div className={cn(
                 "p-5 rounded-lg border-2",
                 run.adPassed ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"
               )}>
                 <p className="text-xs font-black uppercase mb-2 flex items-center gap-2">
-                   {run.adPassed ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                   Technical Verdict: {run.adPassed ? 'Statistical Fit Approved' : 'Statistical Fit Rejected'}
+                  {run.adPassed ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                  Technical Verdict: {run.adPassed ? 'Statistical Fit Approved' : 'Statistical Fit Rejected'}
                 </p>
                 <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                  {run.adPassed 
+                  {run.adPassed
                     ? `The AD Statistic (${run.adStatistic?.toFixed(3)}) is below the critical threshold (0.757). WHY IT SUCCEEDED: The observed corrosion data aligns closely with the expected stochastic behavior of the asset. This implies a uniform degradation mechanism, making the return-level forecasts highly reliable.`
                     : `The AD Statistic (${run.adStatistic?.toFixed(3)}) significantly exceeds the threshold (0.757). WHY IT FAILED: The rejection is caused by 'Heavy Tail' behavior—where localized wall loss is much more severe than what a standard model predicts. This often indicates localized pitting or microbiologically influenced corrosion (MIC) that general models can't see.`
                   }
@@ -190,18 +190,18 @@ export default function EngineeringReport() {
               <div className="bg-gray-50 p-4 rounded border border-gray-100">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Observation of Mechanism</p>
                 <p className="text-xs text-gray-600 leading-relaxed">
-                   {run.ksPValue < 0.05 
-                     ? "The Kolmogorov-Smirnov p-value is extremely low (< 0.05). This confirms that the data has high variance and does not follow a single consistent physical trend. The 'Failure' is a clear indicator of non-uniform asset degradation."
-                     : "The Kolmogorov-Smirnov p-value is healthy (> 0.05), confirming that the data follows a singular, predictable degradation trend."
-                   }
+                  {run.ksPValue < 0.05
+                    ? "The Kolmogorov-Smirnov p-value is extremely low (< 0.05). This confirms that the data has high variance and does not follow a single consistent physical trend. The 'Failure' is a clear indicator of non-uniform asset degradation."
+                    : "The Kolmogorov-Smirnov p-value is healthy (> 0.05), confirming that the data follows a singular, predictable degradation trend."
+                  }
                 </p>
               </div>
             </div>
-            
+
             <div className="space-y-4 text-center">
-              <img 
-                src="/statistical_deviation_diagram.png" 
-                alt="Statistical Deviation Diagram" 
+              <img
+                src="/statistical_deviation_diagram.png"
+                alt="Statistical Deviation Diagram"
                 className="w-full h-auto rounded border border-gray-200 grayscale opacity-90 shadow-sm"
               />
               <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest italic">Fig 3.1: Deviation Analysis of Observed vs Theoretical Quantiles</p>
@@ -238,17 +238,17 @@ export default function EngineeringReport() {
                   const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
                   let eolStr = 'N/A';
                   if (ciEntry?.eolDate) {
-                     eolStr = new Date(ciEntry.eolDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+                    eolStr = new Date(ciEntry.eolDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
                   } else if (corrosionRate > 0 && run.minimumRequiredThickness !== undefined && run.minimumRequiredThickness !== null) {
-                     let eol: Date;
-                     if (run.serviceStartDate) {
-                       const totalLifeDays = ((run.originalThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                       eol = new Date(new Date(run.serviceStartDate).getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
-                     } else {
-                       const remainingLifeDays = ((remThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                       eol = new Date(new Date(run.inspectionDate).getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
-                     }
-                     eolStr = eol.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+                    let eol: Date;
+                    if (run.serviceStartDate) {
+                      const totalLifeDays = ((run.originalThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
+                      eol = new Date(new Date(run.serviceStartDate).getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
+                    } else {
+                      const remainingLifeDays = ((remThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
+                      eol = new Date(new Date(run.inspectionDate).getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
+                    }
+                    eolStr = eol.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
                   }
 
                   return (
@@ -266,6 +266,59 @@ export default function EngineeringReport() {
           </div>
         </section>
 
+        {/* Asset Life & EOL Forecast (Excel Format Table) */}
+        <section className="mb-12 page-break-inside-avoid">
+          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">4.1 Asset Life & EOL Forecast (Excel Format)</h4>
+          <div className="overflow-hidden border border-gray-200 rounded-lg">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-900 text-white text-[10px] font-bold uppercase tracking-widest">
+                  <th className="p-4 text-left">RBI Effectiveness</th>
+                  <th className="p-4 text-center">Confidence Interval</th>
+                  <th className="p-4 text-center">Minimum Remaining Thickness</th>
+                  <th className="p-4 text-center">Corrosion Rate</th>
+                  <th className="p-4 text-center">End of Life</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 font-mono text-xs font-bold text-blue-600">
+                {[
+                  { label: 'A', confidence: '99%', levelKey: '99' },
+                  { label: 'B', confidence: '95%', levelKey: '95' },
+                  { label: 'C', confidence: '90%', levelKey: '90' },
+                  { label: 'D', confidence: '80%', levelKey: '80' }
+                ].map((rbi, idx) => {
+                  const rl = run.returnLevels?.find((r: any) => r.returnPeriod === run.totalPopulation) || run.returnLevels?.[run.returnLevels.length - 1];
+                  if (!rl) return null;
+
+                  const ciEntry = rl.allConfidences?.[rbi.levelKey];
+                  const wallLoss = ciEntry?.wallLoss ?? ciEntry?.upper ?? rl.predictedValue;
+                  const remThickness = ciEntry?.remainingThickness ?? ((run.originalThickness || 0) - wallLoss);
+                  const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
+
+                  let eolDateStr = 'N/A';
+                  if (ciEntry?.eolDate) {
+                    const eolD = new Date(ciEntry.eolDate);
+                    const mm = String(eolD.getMonth() + 1).padStart(2, '0');
+                    const dd = String(eolD.getDate()).padStart(2, '0');
+                    const yy = String(eolD.getFullYear()).slice(-2);
+                    eolDateStr = `${mm}-${dd}-${yy}`;
+                  }
+
+                  return (
+                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="p-4 text-gray-900 font-sans font-bold text-left">{rbi.label}</td>
+                      <td className="p-4 text-gray-500 font-sans font-bold text-center">{rbi.confidence}</td>
+                      <td className="p-4 text-center font-bold">{remThickness.toFixed(3)} mm</td>
+                      <td className="p-4 text-center font-bold">{corrosionRate.toFixed(3)} mmpy</td>
+                      <td className="p-4 text-center font-bold">{eolDateStr}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* Recommendation & What can we do */}
         <section className="mb-12">
           <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">5.0 Strategic Mitigation Plan</h3>
@@ -273,7 +326,7 @@ export default function EngineeringReport() {
             <p className="text-sm text-gray-600 leading-relaxed">
               Based on the results of the probabilistic modeling, the following strategic actions are mandated to maintain the <span className="font-bold text-gray-900 text-xs uppercase tracking-tighter">Safety Integrity Level (SIL)</span> of the asset.
             </p>
-            
+
             <div className="grid grid-cols-2 gap-6">
               <div className="bg-gray-50 p-6 rounded-lg border border-gray-100 space-y-4">
                 <p className="text-xs font-black text-gray-900 uppercase tracking-wider underline decoration-blue-600 underline-offset-4">What Can We Do? (Immediate)</p>
@@ -325,6 +378,8 @@ export default function EngineeringReport() {
                     <th className="p-2">Red. Var. y_i</th>
                     <th className="p-2">ln(PDF)</th>
                     <th className="p-2">Fit Loss</th>
+                    <th className="p-2 bg-blue-800">Max Wall Loss (mm)</th>
+                    <th className="p-2 bg-blue-800">Min Rem. Thickness (mm)</th>
                     <th className="p-2">Std. Error</th>
                     <th className="p-2">95% CI (L - U)</th>
                     <th className="p-2">99% CI (L - U)</th>
@@ -339,6 +394,12 @@ export default function EngineeringReport() {
                       <td className="p-2 text-gray-500">{row.reduced_variate.toFixed(4)}</td>
                       <td className="p-2 text-gray-500">{row.ln_pdf.toFixed(4)}</td>
                       <td className="p-2 text-blue-600 font-bold">{row.best_fit.toFixed(4)} mm</td>
+                      <td className="p-2 font-bold text-blue-700 bg-blue-50">{row.best_fit.toFixed(4)}</td>
+                      <td className="p-2 font-bold text-emerald-700 bg-emerald-50">
+                        {run.originalThickness
+                          ? (run.originalThickness - row.best_fit).toFixed(4)
+                          : 'N/A'}
+                      </td>
                       <td className="p-2 text-gray-500">{row.se.toFixed(4)} mm</td>
                       <td className="p-2 text-gray-600">{row.ci_95_lower.toFixed(4)} - {row.ci_95_upper.toFixed(4)}</td>
                       <td className="p-2 text-gray-600">{row.ci_99_lower.toFixed(4)} - {row.ci_99_upper.toFixed(4)}</td>
@@ -360,14 +421,14 @@ export default function EngineeringReport() {
             </div>
           </div>
           <div className="text-right space-y-2">
-             <div className="w-24 h-24 border-2 border-blue-600 rounded-full flex items-center justify-center p-2 opacity-30 mx-auto mr-0">
-                <div className="border border-blue-600 rounded-full w-full h-full flex flex-col items-center justify-center text-blue-600">
-                   <p className="text-[8px] font-black uppercase leading-none">EVA PORTAL</p>
-                   <p className="text-[6px] font-bold">VERIFIED</p>
-                   <p className="text-[6px] font-mono">{run.id.slice(0, 6)}</p>
-                </div>
-             </div>
-             <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Document Automatically Generated</p>
+            <div className="w-24 h-24 border-2 border-blue-600 rounded-full flex items-center justify-center p-2 opacity-30 mx-auto mr-0">
+              <div className="border border-blue-600 rounded-full w-full h-full flex flex-col items-center justify-center text-blue-600">
+                <p className="text-[8px] font-black uppercase leading-none">EVA PORTAL</p>
+                <p className="text-[6px] font-bold">VERIFIED</p>
+                <p className="text-[6px] font-mono">{run.id.slice(0, 6)}</p>
+              </div>
+            </div>
+            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Document Automatically Generated</p>
           </div>
         </div>
       </div>

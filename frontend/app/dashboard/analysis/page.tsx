@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Play, 
-  Settings, 
-  Database, 
-  BarChart3, 
-  CheckCircle2, 
-  Loader2, 
+import {
+  Play,
+  Settings,
+  Database,
+  BarChart3,
+  CheckCircle2,
+  Loader2,
   Zap,
   Info,
   ChevronRight,
@@ -30,10 +30,10 @@ export default function AnalysisPage() {
   // Form State
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
   const [method, setMethod] = useState('mle');
-  const [confidenceLevel, setConfidenceLevel] = useState(0.95);
   const [nBootstrap, setNBootstrap] = useState(1000);
-  const [totalPopulation, setTotalPopulation] = useState(2000);
-  
+  // totalPopulation auto-fills from the selected dataset's row count
+  const [totalPopulation, setTotalPopulation] = useState<number | ''>('');
+
   // Engineering Parameters
   const [originalThickness, setOriginalThickness] = useState(2.41);
   const [serviceStartDate, setServiceStartDate] = useState('2015-10-01');
@@ -46,7 +46,11 @@ export default function AnalysisPage() {
       try {
         const res = await datasetsApi.getAll();
         setDatasets(res.data);
-        if (res.data.length > 0) setSelectedDataset(res.data[0].id);
+        if (res.data.length > 0) {
+          const firstDb = res.data[0];
+          setSelectedDataset(firstDb.id);
+          setTotalPopulation(firstDb.rowCount || '');
+        }
       } catch (err) {
         console.error('Failed to fetch datasets', err);
       } finally {
@@ -71,7 +75,7 @@ export default function AnalysisPage() {
 
     lines.forEach(line => {
       const lowerLine = line.toLowerCase();
-      
+
       // Original Thickness
       if (lowerLine.includes('thickness') && (lowerLine.includes('service start') || lowerLine.includes('original'))) {
         const match = line.match(/(\d+\.?\d*)/);
@@ -125,9 +129,8 @@ export default function AnalysisPage() {
       const res = await evaApi.run({
         datasetId: selectedDataset,
         method,
-        confidenceLevel,
         nBootstrap,
-        totalPopulation,
+        totalPopulation: totalPopulation || undefined,
         originalThickness,
         serviceStartDate,
         inspectionDate,
@@ -162,15 +165,15 @@ export default function AnalysisPage() {
               <div className="flex-1">
                 <h2 className="text-lg font-bold text-gray-900 tracking-tight">Engineering Parameters</h2>
               </div>
-              <button 
+              <button
                 onClick={async () => {
                   const text = await navigator.clipboard.readText();
                   parseSmartPaste(text);
                 }}
                 className={cn(
                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors border",
-                  isSmartPasteActive 
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-600" 
+                  isSmartPasteActive
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
                     : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
                 )}
               >
@@ -182,7 +185,7 @@ export default function AnalysisPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Original Thickness (mm)</label>
-                <input 
+                <input
                   type="number" step="0.001" value={originalThickness}
                   onChange={(e) => setOriginalThickness(parseFloat(e.target.value))}
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900 font-mono"
@@ -190,7 +193,7 @@ export default function AnalysisPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Min. Required Thickness (mm)</label>
-                <input 
+                <input
                   type="number" step="0.001" value={minimumRequiredThickness}
                   onChange={(e) => setMinimumRequiredThickness(parseFloat(e.target.value))}
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900 font-mono"
@@ -198,7 +201,7 @@ export default function AnalysisPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Service Start Date</label>
-                <input 
+                <input
                   type="date" value={serviceStartDate}
                   onChange={(e) => setServiceStartDate(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900"
@@ -206,14 +209,14 @@ export default function AnalysisPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Inspection Date</label>
-                <input 
+                <input
                   type="date" value={inspectionDate}
                   onChange={(e) => setInspectionDate(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900"
                 />
               </div>
             </div>
-            
+
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-md">
               <p className="text-[10px] text-blue-600 uppercase tracking-wider font-bold mb-0.5">Auto-Conversion Active</p>
               <p className="text-[11px] text-gray-500">
@@ -236,18 +239,21 @@ export default function AnalysisPage() {
                 [1, 2].map(i => <div key={i} className="h-20 bg-gray-50 rounded-md animate-pulse" />)
               ) : datasets.length === 0 ? (
                 <div className="col-span-2 p-8 border border-dashed border-gray-200 rounded-md text-center">
-                   <p className="text-gray-400 text-sm mb-2">No datasets available.</p>
-                   <button onClick={() => router.push('/dashboard/datasets')} className="text-emerald-600 font-bold text-xs uppercase tracking-wider hover:underline">Go to Datasets</button>
+                  <p className="text-gray-400 text-sm mb-2">No datasets available.</p>
+                  <button onClick={() => router.push('/dashboard/datasets')} className="text-emerald-600 font-bold text-xs uppercase tracking-wider hover:underline">Go to Datasets</button>
                 </div>
               ) : (
                 datasets.map((d) => (
                   <button
                     key={d.id}
-                    onClick={() => setSelectedDataset(d.id)}
+                    onClick={() => {
+                      setSelectedDataset(d.id);
+                      setTotalPopulation(d.rowCount || '');
+                    }}
                     className={cn(
                       "p-3 rounded-md border text-left transition-colors",
-                      selectedDataset === d.id 
-                        ? "bg-emerald-50 border-emerald-500" 
+                      selectedDataset === d.id
+                        ? "bg-emerald-50 border-emerald-500"
                         : "bg-white border-gray-100 hover:border-gray-300"
                     )}
                   >
@@ -261,7 +267,12 @@ export default function AnalysisPage() {
                       {selectedDataset === d.id && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
                     </div>
                     <p className="text-sm font-semibold text-gray-900 truncate">{d.name}</p>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-tighter mt-0.5">Uploaded {new Date(d.uploadedAt).toLocaleDateString()}</p>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-tighter">Uploaded {new Date(d.uploadedAt).toLocaleDateString()}</p>
+                      {d.rowCount && (
+                        <span className="text-[10px] font-bold text-emerald-600 font-mono">{d.rowCount} rows</span>
+                      )}
+                    </div>
                   </button>
                 ))
               )}
@@ -306,41 +317,17 @@ export default function AnalysisPage() {
               </div>
             </div>
 
-            <div className="pt-6 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Primary Confidence Level</label>
-                  <span className="text-indigo-600 font-bold text-xs">{(confidenceLevel * 100).toFixed(0)}%</span>
-                </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[0.80, 0.90, 0.95, 0.99].map(cl => (
-                    <button
-                      key={cl}
-                      onClick={() => setConfidenceLevel(cl)}
-                      className={cn(
-                        "py-2 rounded border text-[10px] font-bold transition-all",
-                        confidenceLevel === cl 
-                          ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100 scale-105" 
-                          : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
-                      )}
-                    >
-                      {cl * 100}%
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[9px] text-gray-400 mt-1 uppercase font-bold tracking-tight">Determines API Inspection Effectiveness Level</p>
-              </div>
-
+            <div className="pt-6 border-t border-gray-100">
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Population (N)</label>
-                <input 
-                  type="number" 
-                  value={totalPopulation} 
+                <input
+                  type="number"
+                  value={totalPopulation}
                   onChange={(e) => setTotalPopulation(parseInt(e.target.value) || 0)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 text-gray-900 font-mono"
-                  placeholder="e.g. 2000"
+                  placeholder="Auto-filled from dataset row count"
                 />
-                <p className="text-[9px] text-gray-400 mt-1 uppercase font-bold tracking-tight">Number of units in the entire population (e.g., total tubes)</p>
+                <p className="text-[9px] text-gray-400 mt-1 uppercase font-bold tracking-tight">Total tubes in the bundle — auto-filled from selected dataset. All 4 confidence intervals (80 / 90 / 95 / 99%) are always computed.</p>
               </div>
             </div>
           </section>
@@ -353,14 +340,14 @@ export default function AnalysisPage() {
               <BarChart3 className="w-4 h-4 text-indigo-600" />
               Analysis Specs
             </h3>
-            
+
             <div className="space-y-4 mb-8">
               {[
                 { label: 'Dataset', value: datasets.find(d => d.id === selectedDataset)?.name || 'None', color: 'gray' },
                 { label: 'Distribution', value: 'Gumbel (EVT I)', color: 'indigo' },
                 { label: 'Calculation', value: 'Analytical', color: 'emerald' },
-                { label: 'Confidence', value: `${(confidenceLevel * 100).toFixed(0)}%`, color: 'indigo' },
-                { label: 'Target Pop.', value: totalPopulation.toLocaleString(), color: 'gray' },
+                { label: 'Confidence Levels', value: '80 / 90 / 95 / 99%', color: 'indigo' },
+                { label: 'Target Pop.', value: totalPopulation ? Number(totalPopulation).toLocaleString() : '—', color: 'gray' },
               ].map((item, i) => (
                 <div key={i} className="flex justify-between items-start text-[11px]">
                   <span className="text-gray-400 font-bold uppercase tracking-tighter">{item.label}</span>
@@ -390,13 +377,13 @@ export default function AnalysisPage() {
             </button>
 
             <div className="mt-8 flex items-start gap-3 bg-indigo-50/50 p-4 rounded-md border border-indigo-100">
-               <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
-               <div className="space-y-1">
-                 <p className="text-[10px] text-indigo-900 uppercase tracking-tight font-bold">PVP2006 Compliance</p>
-                 <p className="text-[10px] text-gray-500 leading-relaxed font-medium">
-                   This engine utilizes analytical Standard Error and Student's T-test formulas for rigorous mechanical integrity assurance.
-                 </p>
-               </div>
+              <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-[10px] text-indigo-900 uppercase tracking-tight font-bold">PVP2006 Compliance</p>
+                <p className="text-[10px] text-gray-500 leading-relaxed font-medium">
+                  This engine utilizes analytical Standard Error and Student's T-test formulas for rigorous mechanical integrity assurance.
+                </p>
+              </div>
             </div>
           </div>
         </div>

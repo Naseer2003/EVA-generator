@@ -16,6 +16,9 @@ class EVARequest(BaseModel):
     method: Literal["mle", "mom"] = "mle"
     confidence_levels: List[float] = [0.80, 0.90, 0.95, 0.99]
     return_periods: List[int] = [2, 5, 10, 25, 50, 100]
+    override_n: Optional[int] = None  # When set, use this as n for SE & t-value (e.g. total tubes measured)
+    override_mu: Optional[float] = None
+    override_beta: Optional[float] = None
 
 
 # ─── Response Models ───────────────────────────────────────────────────────────
@@ -50,7 +53,7 @@ class GoodnessOfFit(BaseModel):
 
 class EVAResponse(BaseModel):
     method: str              # "mle" or "mom"
-    n_observations: int      # sample size n
+    n_observations: int      # sample size n used in CI formula
     parameters: Parameters
     return_levels: List[ReturnLevel]
     goodness_of_fit: GoodnessOfFit

@@ -25,9 +25,10 @@ export const authApi = {
 
 // Datasets
 export const datasetsApi = {
-  upload: (file: File) => {
+  upload: (file: File, name?: string) => {
     const form = new FormData();
     form.append('file', file, file.name);
+    if (name) form.append('name', name);
     return api.post('/datasets/upload', form);
   },
   getAll: () => api.get('/datasets'),

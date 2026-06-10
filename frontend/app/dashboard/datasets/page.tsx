@@ -28,6 +28,9 @@ export default function DatasetsPage() {
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [pasteContent, setPasteContent] = useState('');
   const [manualName, setManualName] = useState('');
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadName, setUploadName] = useState('');
 
   useEffect(() => {
     fetchDatasets();
@@ -39,10 +42,8 @@ export default function DatasetsPage() {
       const text = e.clipboardData?.getData('text');
       if (text && text.trim().length > 0) {
         setPasteContent(text);
+        setManualName('');
         setIsPasteModalOpen(true);
-        // Auto-generate name
-        const now = new Date();
-        setManualName(`Manual Import ${now.toLocaleDateString()} ${now.getHours()}:${now.getMinutes()}`);
       }
     };
 
@@ -62,10 +63,10 @@ export default function DatasetsPage() {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File, name?: string) => {
     setIsUploading(true);
     try {
-      await datasetsApi.upload(file);
+      await datasetsApi.upload(file, name || file.name.replace(/\.[^.]+$/, ''));
       fetchDatasets();
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Upload failed. Please try again.';
@@ -75,11 +76,28 @@ export default function DatasetsPage() {
     }
   };
 
+  const handleFilePicked = (file: File) => {
+    // Strip file extension to pre-fill a clean name
+    const defaultName = file.name.replace(/\.[^.]+$/, '');
+    setPendingFile(file);
+    setUploadName(defaultName);
+    setIsUploadModalOpen(true);
+  };
+
+  const handleUploadConfirm = async () => {
+    if (!pendingFile) return;
+    setIsUploadModalOpen(false);
+    const nameToUse = uploadName.trim() || pendingFile.name.replace(/\.[^.]+$/, '');
+    await handleFileUpload(pendingFile, nameToUse);
+    setPendingFile(null);
+    setUploadName('');
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
+      handleFilePicked(e.dataTransfer.files[0]);
     }
   };
 
@@ -101,12 +119,13 @@ export default function DatasetsPage() {
     // Create a CSV blob
     const csvContent = values.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
-    const file = new File([blob], `${manualName || 'Manual Import'}.csv`, { type: 'text/csv' });
+    const name = manualName.trim() || 'Manual Import';
+    const file = new File([blob], `${name}.csv`, { type: 'text/csv' });
 
     setIsPasteModalOpen(false);
     setPasteContent('');
     setManualName('');
-    await handleFileUpload(file);
+    await handleFileUpload(file, name);
   };
 
   const handleDownload = async (id: string, name: string) => {
@@ -144,7 +163,7 @@ export default function DatasetsPage() {
           <button 
             onClick={() => {
               setPasteContent('');
-              setManualName(`Manual Import ${new Date().toLocaleDateString()}`);
+              setManualName('');
               setIsPasteModalOpen(true);
             }}
             className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
@@ -157,8 +176,9 @@ export default function DatasetsPage() {
             Add New Dataset
             <input 
               type="file" 
-              className="hidden" 
-              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+              className="hidden"
+              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+              onChange={(e) => e.target.files?.[0] && handleFilePicked(e.target.files[0])}
             />
           </label>
         </div>
@@ -297,6 +317,15 @@ export default function DatasetsPage() {
         setName={setManualName}
         onSubmit={handleManualSubmit}
       />
+
+      <UploadNameModal
+        isOpen={isUploadModalOpen}
+        fileName={pendingFile?.name || ''}
+        name={uploadName}
+        setName={setUploadName}
+        onConfirm={handleUploadConfirm}
+        onClose={() => { setIsUploadModalOpen(false); setPendingFile(null); setUploadName(''); }}
+      />
     </div>
   );
 }
@@ -406,5 +435,78 @@ function PasteModal({
       </div>
     </div>
 
+  );
+}
+
+function UploadNameModal({
+  isOpen,
+  fileName,
+  name,
+  setName,
+  onConfirm,
+  onClose,
+}: {
+  isOpen: boolean;
+  fileName: string;
+  name: string;
+  setName: (v: string) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-lg w-full max-w-md overflow-hidden shadow-xl">
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded flex items-center justify-center text-blue-600">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 tracking-tight">Name Your Dataset</h2>
+              <p className="text-xs text-gray-500 truncate max-w-xs">{fileName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+              Dataset Name <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && name.trim() && onConfirm()}
+              placeholder="e.g. Tank 42 Inspection 2024"
+              autoFocus
+              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900"
+            />
+            <p className="text-xs text-gray-400 mt-1">Give this dataset a meaningful name so you can find it later.</p>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!name.trim()}
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors"
+          >
+            Upload Dataset
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

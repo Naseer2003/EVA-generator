@@ -1,7 +1,7 @@
 import {
   Controller, Post, Get, Param, UseGuards, Request,
   UploadedFile, UseInterceptors, BadRequestException,
-  Res, StreamableFile, NotFoundException,
+  Res, StreamableFile, NotFoundException, Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -38,9 +38,13 @@ export class DatasetsController {
       limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
     }),
   )
-  async upload(@UploadedFile() file: Express.Multer.File, @Request() req: any) {
+  async upload(
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
+    @Body('name') name?: string,
+  ) {
     if (!file) throw new BadRequestException('No file provided');
-    return this.datasets.createDataset(file, req.user.id, req.user.tenantId);
+    return this.datasets.createDataset(file, req.user.id, req.user.tenantId, name);
   }
 
   @Get()

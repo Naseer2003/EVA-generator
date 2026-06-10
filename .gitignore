@@ -25,6 +25,11 @@ dist/
 .env.test.local
 .env.production.local
 
+# Python venvs
+venv/
+.venv/
+env/
+
 # Local Uploads
 uploads/
 results/
