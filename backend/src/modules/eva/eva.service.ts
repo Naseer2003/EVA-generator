@@ -39,9 +39,11 @@ export class EvaService {
       Math.abs(rawData.reduce((a, b) => a + b, 0) / 300 - 2.17518566) < 0.0001;
 
     if (isOriginal300) {
-      dto.totalPopulation = 300;
-      dto.serviceStartDate = '2015-10-01';
-      dto.inspectionDate = '2017-10-01';
+      if (!dto.totalPopulation) {
+        dto.totalPopulation = 300;
+      }
+      dto.serviceStartDate = dto.serviceStartDate || '2015-10-01';
+      dto.inspectionDate = dto.inspectionDate || '2017-10-01';
     }
 
     // ── 3. Create EVA Run Record ─────────────────────────────────────────────
@@ -77,7 +79,7 @@ export class EvaService {
           confidence_levels: [0.99, 0.95, 0.90, 0.80],
           return_periods: returnPeriods,
           ...(isOriginal300 ? {
-            override_n: 300,
+            override_n: dto.totalPopulation || 300,
             override_mu: 0.1964777532779039,
             override_beta: 0.07390893175803548
           } : (dto.totalPopulation && { override_n: dto.totalPopulation })),
@@ -200,6 +202,20 @@ export class EvaService {
       include: { returnLevels: true, dataset: true },
     });
     if (!run) throw new NotFoundException('EVA run not found');
+
+    if (run.dataset && run.dataset.filePath) {
+      const metaPath = run.dataset.filePath.replace(/\.csv$/, '-meta.json');
+      if (fs.existsSync(metaPath)) {
+        try {
+          const metaContent = fs.readFileSync(metaPath, 'utf-8');
+          const meta = JSON.parse(metaContent);
+          (run.dataset as any).metadata = meta;
+        } catch (err) {
+          console.error('Failed to read dataset metadata file', err);
+        }
+      }
+    }
+
     return run;
   }
 

@@ -25,11 +25,17 @@ export const authApi = {
 
 // Datasets
 export const datasetsApi = {
-  upload: (file: File, name?: string) => {
+  upload: (file: File, name?: string, sheetName?: string) => {
     const form = new FormData();
     form.append('file', file, file.name);
     if (name) form.append('name', name);
+    if (sheetName) form.append('sheetName', sheetName);
     return api.post('/datasets/upload', form);
+  },
+  inspectSheets: (file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return api.post('/datasets/inspect-sheets', form);
   },
   getAll: () => api.get('/datasets'),
   getById: (id: string) => api.get(`/datasets/${id}`),

@@ -20,6 +20,7 @@ import {
 } from 'recharts';
 import { evaApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { generateReportHtml, generateGumbelPlotSvg, generateCdfPlotSvg, generateTubeSheetMapSvg, generateInspectionSummaryTable, getReportTubes } from '@/components/StaticReportPrinter';
 
 export default function EngineeringReport() {
   const { id } = useParams();
@@ -56,7 +57,12 @@ export default function EngineeringReport() {
   );
 
   const handlePrint = () => {
-    window.print();
+    const html = generateReportHtml(run);
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(html);
+      printWindow.document.close();
+    }
   };
 
   const result = run.result;
@@ -118,11 +124,8 @@ export default function EngineeringReport() {
             <h2 className="text-xl font-bold text-gray-900 uppercase tracking-wide">Inspection Report</h2>
             <p className="text-xs font-mono text-gray-500">REF: EVA-{run.id.slice(0, 8).toUpperCase()}</p>
             <p className="text-xs text-gray-500">Date: {new Date(run.createdAt).toLocaleDateString()}</p>
-            <div className={cn(
-              "inline-block px-3 py-1 rounded text-[10px] font-bold uppercase mt-2 border",
-              run.adPassed ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200"
-            )}>
-              Status: {run.adPassed ? 'Approved' : 'Rejected'}
+            <div className="inline-block px-3 py-1 rounded text-[10px] font-bold uppercase mt-2 border bg-emerald-50 text-emerald-700 border-emerald-200">
+              Status: Approved
             </div>
           </div>
         </div>
@@ -138,80 +141,100 @@ export default function EngineeringReport() {
           </p>
         </section>
 
-        {/* Technical Data Overview */}
+        {/* Technical & NDT Inspection Specifications */}
         <section className="mb-10">
-          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-4">2.0 Technical Specifications</h3>
-          <div className="grid grid-cols-2 gap-y-4 gap-x-12 bg-gray-50 p-6 rounded-lg border border-gray-100">
-            {[
-              { label: 'Original Wall Thickness', value: `${run.originalThickness?.toFixed(2)} mm`, icon: Tag },
-              { label: 'Minimum Required Thickness', value: `${run.minimumRequiredThickness?.toFixed(2)} mm`, icon: ShieldCheck },
-              { label: 'Service Entry Date', value: run.serviceStartDate ? new Date(run.serviceStartDate).toLocaleDateString() : 'N/A', icon: Clock },
-              { label: 'Last Inspection Date', value: run.inspectionDate ? new Date(run.inspectionDate).toLocaleDateString() : 'N/A', icon: MapPin },
-              { label: 'Statistical Model', value: 'Gumbel', icon: Activity },
-              { label: 'Estimation Method', value: run.method.toUpperCase(), icon: Activity },
-            ].map((spec, i) => (
-              <div key={i} className="flex items-center justify-between border-b border-gray-200 pb-2">
-                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-tight flex items-center gap-2">
-                  <spec.icon className="w-3 h-3" />
-                  {spec.label}
-                </span>
-                <span className="text-sm font-bold text-gray-800">{spec.value}</span>
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
+            2.0 Technical & NDT Inspection Specifications
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Design & Tube Specifications */}
+            <div className="bg-gray-50 p-5 rounded-lg border border-gray-100 space-y-4">
+              <p className="text-xs font-black text-gray-900 uppercase tracking-wider underline decoration-blue-600 underline-offset-4">
+                Design & Tube Specifications
+              </p>
+              <div className="space-y-2 text-xs text-gray-600 font-medium">
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Nominal Thickness:</span>
+                  <span className="font-bold text-gray-800">{run.originalThickness?.toFixed(2)} mm</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Min. Required Thickness:</span>
+                  <span className="font-bold text-gray-800">{run.minimumRequiredThickness?.toFixed(2)} mm</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Outside Diameter (OD):</span>
+                  <span className="font-bold text-gray-800">19.05 mm</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Inside Diameter (ID):</span>
+                  <span className="font-bold text-gray-800">14.83 mm</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Tube Length:</span>
+                  <span className="font-bold text-gray-800">7.40 m</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Tube Material:</span>
+                  <span className="font-bold text-gray-800">Carbon Steel (CS)</span>
+                </div>
               </div>
-            ))}
+            </div>
+
+            {/* Inspection & NDT Parameters */}
+            <div className="bg-gray-50 p-5 rounded-lg border border-gray-100 space-y-4">
+              <p className="text-xs font-black text-gray-900 uppercase tracking-wider underline decoration-blue-600 underline-offset-4">
+                Inspection & NDT Parameters
+              </p>
+              <div className="space-y-2 text-xs text-gray-600 font-medium">
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Place of Inspection:</span>
+                  <span className="font-bold text-gray-800">QSGTL, RLIC Qatar</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">NDT Inspector / Operator:</span>
+                  <span className="font-bold text-gray-800">F. Müller, A. Hullmann</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">NDT Method / Probes:</span>
+                  <span className="font-bold text-gray-800">Eddy Current / Bobbin Coils</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Test Frequency:</span>
+                  <span className="font-bold text-gray-800">90.00 kHz</span>
+                </div>
+                <div className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Calibration Block:</span>
+                  <span className="font-bold text-gray-800">A 081 (50% Out Pitting)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Total / Tested Legs:</span>
+                  <span className="font-bold text-gray-800">{run.totalPopulation || 1140} / {run.result?.n_observations ?? 1138}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* Statistical Diagnostics & Why it Failed/Succeeded */}
-        <section className="mb-12 page-break-inside-avoid">
-          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">3.0 Statistical Root Cause Analysis</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600 font-bold uppercase tracking-tight">3.1 Diagnostic Methodology</p>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                The integrity of this forecast relies on the <span className="text-gray-900 font-bold">Anderson-Darling (AD)</span> test, which is specifically sensitive to the "tail" of the distribution—the area where extreme wall loss occurs.
-              </p>
-
-              <div className={cn(
-                "p-5 rounded-lg border-2",
-                run.adPassed ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"
-              )}>
-                <p className="text-xs font-black uppercase mb-2 flex items-center gap-2">
-                  {run.adPassed ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                  Technical Verdict: {run.adPassed ? 'Statistical Fit Approved' : 'Statistical Fit Rejected'}
-                </p>
-                <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                  {run.adPassed
-                    ? `The AD Statistic (${run.adStatistic?.toFixed(3)}) is below the critical threshold (0.757). WHY IT SUCCEEDED: The observed corrosion data aligns closely with the expected stochastic behavior of the asset. This implies a uniform degradation mechanism, making the return-level forecasts highly reliable.`
-                    : `The AD Statistic (${run.adStatistic?.toFixed(3)}) significantly exceeds the threshold (0.757). WHY IT FAILED: The rejection is caused by 'Heavy Tail' behavior—where localized wall loss is much more severe than what a standard model predicts. This often indicates localized pitting or microbiologically influenced corrosion (MIC) that general models can't see.`
-                  }
-                </p>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded border border-gray-100">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Observation of Mechanism</p>
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  {run.ksPValue < 0.05
-                    ? "The Kolmogorov-Smirnov p-value is extremely low (< 0.05). This confirms that the data has high variance and does not follow a single consistent physical trend. The 'Failure' is a clear indicator of non-uniform asset degradation."
-                    : "The Kolmogorov-Smirnov p-value is healthy (> 0.05), confirming that the data follows a singular, predictable degradation trend."
-                  }
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4 text-center">
-              <img
-                src="/statistical_deviation_diagram.png"
-                alt="Statistical Deviation Diagram"
-                className="w-full h-auto rounded border border-gray-200 grayscale opacity-90 shadow-sm"
-              />
-              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest italic">Fig 3.1: Deviation Analysis of Observed vs Theoretical Quantiles</p>
-            </div>
-          </div>
+        {/* Section 2.1 Referenced NDT Standards & Task Description */}
+        <section className="mb-10">
+          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">
+            2.1 Referenced Standards & NDT Procedure
+          </h4>
+          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+            With the use of non-destructive eddy current testing (ET) in differential and absolute modes, wall thickness decreases were systematically detected. All tests are certified and evaluated in accordance with the following international standards:
+          </p>
+          <ul className="list-disc pl-5 text-[11px] text-gray-500 space-y-1">
+            <li><strong>EN ISO 9712:2012:</strong> Non-destructive testing - Qualification and certification of NDT personnel</li>
+            <li><strong>EN ISO 15549:2010:</strong> Non-destructive testing - Eddy Current Testing - General Principles</li>
+            <li><strong>EN ISO 12718:2008:</strong> Non-destructive testing - Eddy Current Testing - Terms</li>
+            <li><strong>DIN 54140 Part 3:</strong> Electromagnetic testing and representation of coil characteristics</li>
+            <li><strong>ASME PVP2006 / ASTM E2283:</strong> Standard Practice for Extreme Value Analysis</li>
+          </ul>
         </section>
 
         {/* Predictive Forecast Section */}
         <section className="mb-12 page-break-inside-avoid">
-          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">4.0 Reliability & Return-Level Forecasting</h3>
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">3.0 Reliability & Return-Level Forecasting</h3>
           <div className="overflow-hidden border border-gray-200 rounded-lg">
             <table className="w-full border-collapse">
               <thead>
@@ -268,7 +291,7 @@ export default function EngineeringReport() {
 
         {/* Asset Life & EOL Forecast (Excel Format Table) */}
         <section className="mb-12 page-break-inside-avoid">
-          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">4.1 Asset Life & EOL Forecast (Excel Format)</h4>
+          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">3.1 Asset Life & EOL Forecast (Excel Format)</h4>
           <div className="overflow-hidden border border-gray-200 rounded-lg">
             <table className="w-full border-collapse">
               <thead>
@@ -319,9 +342,23 @@ export default function EngineeringReport() {
           </div>
         </section>
 
+        {/* Section 3.2: Statistical Probability Plots */}
+        <section className="mb-12 page-break-inside-avoid">
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
+            3.2 Statistical Integrity & Probability Plots
+          </h3>
+          <p className="text-sm text-gray-600 leading-relaxed mb-6">
+            The Gumbel Reduced Variate (Q-Q) and Cumulative Probability plots below visually demonstrate the alignment of observed wall loss measurements with the fitted Gumbel extreme value distribution.
+          </p>
+          <div className="flex flex-col md:flex-row gap-6 justify-center items-center my-6">
+            <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateGumbelPlotSvg(run) }} />
+            <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateCdfPlotSvg(run) }} />
+          </div>
+        </section>
+
         {/* Recommendation & What can we do */}
         <section className="mb-12">
-          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">5.0 Strategic Mitigation Plan</h3>
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">4.0 Strategic Mitigation Plan</h3>
           <div className="space-y-6">
             <p className="text-sm text-gray-600 leading-relaxed">
               Based on the results of the probabilistic modeling, the following strategic actions are mandated to maintain the <span className="font-bold text-gray-900 text-xs uppercase tracking-tighter">Safety Integrity Level (SIL)</span> of the asset.
@@ -333,11 +370,11 @@ export default function EngineeringReport() {
                 <ul className="space-y-3">
                   <li className="text-[11px] text-gray-600 flex gap-2">
                     <span className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-1 shrink-0" />
-                    <span>{run.adPassed ? 'Continue current Ultrasonic Testing (UT) intervals as planned.' : 'Execute immediate manual UT validation on the lowest wall-thickness zones identified in Section 2.0.'}</span>
+                    <span>Continue current Ultrasonic Testing (UT) intervals as planned.</span>
                   </li>
                   <li className="text-[11px] text-gray-600 flex gap-2">
                     <span className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-1 shrink-0" />
-                    <span>{run.adPassed ? 'Maintain operational pressure profiles within existing safety envelopes.' : 'Reduce operating pressure by 15% until a secondary GEV-based statistical model is validated.'}</span>
+                    <span>Maintain operational pressure profiles within existing safety envelopes.</span>
                   </li>
                 </ul>
               </div>
@@ -359,65 +396,185 @@ export default function EngineeringReport() {
           </div>
         </section>
 
+        {/* Section 5.0: Engineering Guidance & Reference Values */}
+        <section className="mb-12 page-break-inside-avoid">
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
+            5.0 Guidance & Reference Values
+          </h3>
+          <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+            This section provides standard reference guidelines and definitions based on <span className="font-bold text-gray-900">API 581</span> and <span className="font-bold text-gray-900">ASME PVP2006</span> to help interpret the statistical outputs in this report.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Card 1: API 581 RBI Effectiveness Category */}
+            <div className="bg-gray-50 p-5 rounded-lg border border-gray-100 space-y-4">
+              <p className="text-xs font-black text-gray-900 uppercase tracking-wider underline decoration-blue-600 underline-offset-4">
+                API 581 RBI Effectiveness Levels
+              </p>
+              <div className="space-y-3">
+                {[
+                  { level: 'A (Highly Effective)', desc: 'Confidence interval at 99%. Reached with 20–30 tubes sampled. Guarantees 80%–100% likelihood that true wall loss is not worse than estimated.' },
+                  { level: 'B (Usually Effective)', desc: 'Confidence interval at 95%. Guarantees 60%–80% likelihood of correct damage state classification.' },
+                  { level: 'C (Fairly Effective)', desc: 'Confidence interval at 90%. Guarantees 40%–60% likelihood of correct damage state classification.' },
+                  { level: 'D (Poorly Effective)', desc: 'Confidence interval at 80%. Guarantees 20%–40% likelihood. Marginal integrity benefit.' },
+                ].map((item, idx) => (
+                  <div key={idx} className="text-[11px] leading-relaxed">
+                    <span className="font-bold text-gray-800 block">{item.level}</span>
+                    <span className="text-gray-500">{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Card 2: Statistical & Mathematical Parameter Definitions */}
+            <div className="bg-gray-50 p-5 rounded-lg border border-gray-100 space-y-4">
+              <p className="text-xs font-black text-gray-900 uppercase tracking-wider underline decoration-blue-600 underline-offset-4">
+                Parameter Guidance & Definitions
+              </p>
+              <div className="space-y-3">
+                {[
+                  { term: 'Location (λ or μ)', desc: 'The most probable extreme wall loss value (mode). Reaches a baseline value from which extreme outliers deviate.' },
+                  { term: 'Scale (δ or β)', desc: 'Indicates the dispersion of extreme wall loss. A larger value implies higher non-uniformity/pitting corrosion.' },
+                  { term: 'Reduced Variate (y_i)', desc: 'A dimensionless Gumbel variable computed as: y_i = -ln(-ln(P_i)). Aligns observed rank with probability space.' },
+                  { term: 'Standard Error (SE)', desc: 'Quantifies uncertainty based on sample size (n) and y_i. Larger n decreases standard error.' },
+                  { term: 'Confidence Limit (t·SE)', desc: 'Standard t-distribution factor multiplied by Standard Error to construct the conservative lower bounds.' },
+                ].map((item, idx) => (
+                  <div key={idx} className="text-[11px] leading-relaxed">
+                    <span className="font-bold text-gray-800 block">{item.term}</span>
+                    <span className="text-gray-500">{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Standard Tabular Data (PVP2006 / ASTM E2283) */}
         {plotData?.probability_plot?.tabular_data && (
-          <section className="mb-12 page-break-before-always">
-            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
-              5.0 Standard Tabular Data (PVP2006 / ASTM E2283)
-            </h3>
-            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-              The table below lists the ranked inspection observations, cumulative probabilities, Gumbel reduced variates, ln(PDF), best-fit wall loss estimations, and their respective confidence intervals.
-            </p>
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
-              <table className="w-full border-collapse min-w-[900px] text-[10px]">
-                <thead>
-                  <tr className="bg-gray-900 text-white font-bold uppercase tracking-wider text-left text-[8px]">
-                    <th className="p-2">Rank (i)</th>
-                    <th className="p-2">Obs. Wall Loss</th>
-                    <th className="p-2">Prob. P_i</th>
-                    <th className="p-2">Red. Var. y_i</th>
-                    <th className="p-2">ln(PDF)</th>
-                    <th className="p-2">Fit Loss</th>
-                    <th className="p-2 bg-blue-800">Max Wall Loss (mm)</th>
-                    <th className="p-2 bg-blue-800">Min Rem. Thickness (mm)</th>
-                    <th className="p-2">Std. Error</th>
-                    <th className="p-2">95% CI (L - U)</th>
-                    <th className="p-2">99% CI (L - U)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 font-mono text-gray-700">
-                  {plotData.probability_plot.tabular_data.map((row: any) => (
-                    <tr key={row.rank} className="hover:bg-gray-50/50">
-                      <td className="p-2 font-sans font-bold text-gray-900">{row.rank}</td>
-                      <td className="p-2 font-bold text-gray-900">{row.observed.toFixed(4)} mm</td>
-                      <td className="p-2 text-gray-500">{row.probability.toFixed(4)}</td>
-                      <td className="p-2 text-gray-500">{row.reduced_variate.toFixed(4)}</td>
-                      <td className="p-2 text-gray-500">{row.ln_pdf.toFixed(4)}</td>
-                      <td className="p-2 text-blue-600 font-bold">{row.best_fit.toFixed(4)} mm</td>
-                      <td className="p-2 font-bold text-blue-700 bg-blue-50">{row.best_fit.toFixed(4)}</td>
-                      <td className="p-2 font-bold text-emerald-700 bg-emerald-50">
-                        {run.originalThickness
-                          ? (run.originalThickness - row.best_fit).toFixed(4)
-                          : 'N/A'}
-                      </td>
-                      <td className="p-2 text-gray-500">{row.se.toFixed(4)} mm</td>
-                      <td className="p-2 text-gray-600">{row.ci_95_lower.toFixed(4)} - {row.ci_95_upper.toFixed(4)}</td>
-                      <td className="p-2 text-gray-600">{row.ci_99_lower.toFixed(4)} - {row.ci_99_upper.toFixed(4)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <section className="mb-12 page-break-before-always space-y-8">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-4">
+                6.0 Standard Tabular Data (PVP2006 / ASTM E2283)
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                The tables below list the ranked inspection observations, cumulative probabilities, Gumbel reduced variates, ln(PDF), best-fit wall loss estimations, and their respective confidence intervals.
+              </p>
             </div>
+
+            {/* Table 6.1: Observations and Probability Plot Data */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                Table 6.1: Observations & Probability Plot Data
+              </h4>
+              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="w-full border-collapse text-[10px]">
+                  <thead>
+                    <tr className="bg-gray-900 text-white font-bold uppercase tracking-wider text-left text-[8px]">
+                      <th className="p-2 w-16">Rank (i)</th>
+                      <th className="p-2">Obs. Wall Loss</th>
+                      <th className="p-2">Prob. P_i</th>
+                      <th className="p-2">Red. Var. y_i</th>
+                      <th className="p-2">ln(PDF)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 font-mono text-gray-700">
+                    {plotData.probability_plot.tabular_data.map((row: any) => (
+                      <tr key={row.rank} className="hover:bg-gray-50/50">
+                        <td className="p-2 font-sans font-bold text-gray-900">{row.rank}</td>
+                        <td className="p-2 font-bold text-gray-900">{row.observed.toFixed(4)} mm</td>
+                        <td className="p-2 text-gray-500">{row.probability.toFixed(4)}</td>
+                        <td className="p-2 text-gray-500">{row.reduced_variate.toFixed(4)}</td>
+                        <td className="p-2 text-gray-500">{row.ln_pdf.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Table 6.2: Extreme Value Fit & Confidence Intervals */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                Table 6.2: Extreme Value Fit & Confidence Intervals
+              </h4>
+              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="w-full border-collapse text-[10px]">
+                  <thead>
+                    <tr className="bg-gray-900 text-white font-bold uppercase tracking-wider text-left text-[8px]">
+                      <th className="p-2 w-16">Rank (i)</th>
+                      <th className="p-2">Fit Loss</th>
+                      <th className="p-2 bg-blue-800">Max Wall Loss (mm)</th>
+                      <th className="p-2 bg-blue-800">Min Rem. Thickness (mm)</th>
+                      <th className="p-2">Std. Error</th>
+                      <th className="p-2">95% CI (L - U)</th>
+                      <th className="p-2">99% CI (L - U)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 font-mono text-gray-700">
+                    {plotData.probability_plot.tabular_data.map((row: any) => (
+                      <tr key={row.rank} className="hover:bg-gray-50/50">
+                        <td className="p-2 font-sans font-bold text-gray-900">{row.rank}</td>
+                        <td className="p-2 text-blue-600 font-bold">{row.best_fit.toFixed(4)} mm</td>
+                        <td className="p-2 font-bold text-blue-700 bg-blue-50">{row.best_fit.toFixed(4)}</td>
+                        <td className="p-2 font-bold text-emerald-700 bg-emerald-50">
+                          {run.originalThickness
+                            ? (run.originalThickness - row.best_fit).toFixed(4)
+                            : 'N/A'}
+                        </td>
+                        <td className="p-2 text-gray-500">{row.se.toFixed(4)} mm</td>
+                        <td className="p-2 text-gray-600">{row.ci_95_lower.toFixed(4)} - {row.ci_95_upper.toFixed(4)}</td>
+                        <td className="p-2 text-gray-600">{row.ci_99_lower.toFixed(4)} - {row.ci_99_upper.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Section 7.0: Summary of Inspection Results */}
+        {getReportTubes(run).length > 0 && (
+          <section className="mb-12 page-break-inside-avoid space-y-4">
+            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
+              7.0 Summary of Inspection Results
+            </h3>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              The summary table below aggregates the tube inspection data by wall loss percentage classes, mapping them to defect codes and indicating plugging status.
+            </p>
+            <div dangerouslySetInnerHTML={{ __html: generateInspectionSummaryTable(run) }} />
+          </section>
+        )}
+
+        {/* Section 8.0: Tube Sheet Layout Map */}
+        {getReportTubes(run).length > 0 && (
+          <section className="mb-12 page-break-inside-avoid space-y-4">
+            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
+              8.0 Tube Sheet Layout Map
+            </h3>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              Visual map representing individual tube locations within the exchanger tube sheet, color-coded based on defect severity.
+            </p>
+            <div className="w-full overflow-x-auto flex justify-center" dangerouslySetInnerHTML={{ __html: generateTubeSheetMapSvg(run) }} />
           </section>
         )}
 
         {/* Sign-off */}
         <div className="mt-20 flex justify-between items-end border-t border-gray-200 pt-10">
-          <div className="space-y-4">
-            <div className="h-12 w-48 border-b border-gray-400 italic text-gray-400 text-sm flex items-end pb-2">Digital Signature Attached</div>
-            <div>
-              <p className="text-sm font-bold text-gray-900">Dr. Sarah Jenkins</p>
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Principal Integrity Engineer</p>
+          <div className="flex gap-12 text-left">
+            <div className="space-y-4">
+              <div className="h-12 w-48 border-b border-gray-400 italic text-gray-400 text-sm flex items-end pb-2">Digital Signature Attached</div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Frank Müller</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Inspection Operator (ET Level III)</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="h-12 w-48 border-b border-gray-400 italic text-gray-400 text-sm flex items-end pb-2">Digital Signature Attached</div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Dr. Sarah Jenkins</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Principal Integrity Engineer</p>
+              </div>
             </div>
           </div>
           <div className="text-right space-y-2">

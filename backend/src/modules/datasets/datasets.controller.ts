@@ -28,10 +28,10 @@ export class DatasetsController {
         },
       }),
       fileFilter: (_req, file, cb) => {
-        const allowed = ['.csv', '.txt', '.xlsx'];
+        const allowed = ['.csv', '.txt', '.xlsx', '.xlsm'];
         const ext = extname(file.originalname).toLowerCase();
         if (!allowed.includes(ext)) {
-          return cb(new BadRequestException('Only CSV, TXT, XLSX files allowed'), false);
+          return cb(new BadRequestException('Only CSV, TXT, XLSX, XLSM files allowed'), false);
         }
         cb(null, true);
       },
@@ -42,9 +42,28 @@ export class DatasetsController {
     @UploadedFile() file: Express.Multer.File,
     @Request() req: any,
     @Body('name') name?: string,
+    @Body('sheetName') sheetName?: string,
   ) {
     if (!file) throw new BadRequestException('No file provided');
-    return this.datasets.createDataset(file, req.user.id, req.user.tenantId, name);
+    return this.datasets.createDataset(file, req.user.id, req.user.tenantId, name, sheetName);
+  }
+
+  @Post('inspect-sheets')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads',
+        filename: (_req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `inspect-${unique}${extname(file.originalname)}`);
+        },
+      }),
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  async inspectSheets(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    return this.datasets.inspectExcelSheets(file.path);
   }
 
   @Get()

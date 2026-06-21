@@ -41,6 +41,7 @@ import {
 } from 'recharts';
 import { evaApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { generateGumbelPlotSvg, generateCdfPlotSvg, generateTubeSheetMapSvg, generateInspectionSummaryTable } from '@/components/StaticReportPrinter';
 
 export default function ResultsPage() {
   const { id } = useParams();
@@ -448,12 +449,12 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          {/* 2. Probability Plot (QQ Plot) */}
+          {/* 2. Statistical Integrity & Probability Plots */}
           <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 tracking-tight">Probability Plot (Q-Q)</h3>
-                <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Observed vs Theoretical Quantiles</p>
+                <h3 className="text-lg font-bold text-gray-900 tracking-tight">Statistical Integrity & Probability Plots</h3>
+                <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Gumbel Q-Q & Cumulative Probability Fits</p>
               </div>
               <div className={cn(
                 "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border font-bold text-[10px] uppercase tracking-wider",
@@ -464,47 +465,9 @@ export default function ResultsPage() {
               </div>
             </div>
 
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-                  <XAxis
-                    type="number"
-                    dataKey="theoretical"
-                    name="Theoretical"
-                    stroke="#94a3b8"
-                    fontSize={10}
-                    label={{ value: 'Theoretical Quantile', position: 'bottom', fill: '#64748b', fontSize: 10, offset: 0 }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="observed"
-                    name="Observed"
-                    stroke="#94a3b8"
-                    fontSize={10}
-                    label={{ value: 'Observed (mm)', angle: -90, position: 'left', fill: '#64748b', fontSize: 10, offset: 0 }}
-                  />
-                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                  <Scatter name="Data Points" data={qqPlotData} fill="#3b82f6" fillOpacity={0.6} />
-                  {qqPlotData.length > 0 && (
-                    <ReferenceLine
-                      segment={[
-                        {
-                          x: Math.min(...qqPlotData.map((d: any) => d.theoretical)),
-                          y: Math.min(...qqPlotData.map((d: any) => d.theoretical))
-                        },
-                        {
-                          x: Math.max(...qqPlotData.map((d: any) => d.theoretical)),
-                          y: Math.max(...qqPlotData.map((d: any) => d.theoretical))
-                        }
-                      ]}
-                      stroke="#f59e0b"
-                      strokeWidth={1}
-                      strokeOpacity={0.5}
-                    />
-                  )}
-                </ScatterChart>
-              </ResponsiveContainer>
+            <div className="flex flex-col md:flex-row gap-6 justify-center items-center">
+              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateGumbelPlotSvg(run) }} />
+              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateCdfPlotSvg(run) }} />
             </div>
           </div>
         </div>
@@ -633,6 +596,27 @@ export default function ResultsPage() {
               Finalize Engineering Report
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Section 7.0 & 8.0: Inspection Summary & Tube Sheet Map */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Inspection Summary Table */}
+        <div className="xl:col-span-1 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-6 flex flex-col justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 tracking-tight">Summary of Inspection Results</h3>
+            <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Section 7.0 summary statistics</p>
+          </div>
+          <div className="mt-4 overflow-x-auto w-full" dangerouslySetInnerHTML={{ __html: generateInspectionSummaryTable(run) }} />
+        </div>
+
+        {/* Tube Sheet Map */}
+        <div className="xl:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-6">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 tracking-tight">Tube Sheet Layout Map</h3>
+            <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Section 8.0 Visual Map</p>
+          </div>
+          <div className="mt-4 w-full overflow-x-auto flex justify-center" dangerouslySetInnerHTML={{ __html: generateTubeSheetMapSvg(run) }} />
         </div>
       </div>
 

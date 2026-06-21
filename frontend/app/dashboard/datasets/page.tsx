@@ -31,6 +31,9 @@ export default function DatasetsPage() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState('');
+  const [sheets, setSheets] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [isInspectingSheets, setIsInspectingSheets] = useState(false);
 
   useEffect(() => {
     fetchDatasets();
@@ -63,10 +66,10 @@ export default function DatasetsPage() {
     }
   };
 
-  const handleFileUpload = async (file: File, name?: string) => {
+  const handleFileUpload = async (file: File, name?: string, sheetName?: string) => {
     setIsUploading(true);
     try {
-      await datasetsApi.upload(file, name || file.name.replace(/\.[^.]+$/, ''));
+      await datasetsApi.upload(file, name || file.name.replace(/\.[^.]+$/, ''), sheetName);
       fetchDatasets();
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Upload failed. Please try again.';
@@ -76,21 +79,55 @@ export default function DatasetsPage() {
     }
   };
 
-  const handleFilePicked = (file: File) => {
-    // Strip file extension to pre-fill a clean name
+  const handleFilePicked = async (file: File) => {
     const defaultName = file.name.replace(/\.[^.]+$/, '');
-    setPendingFile(file);
-    setUploadName(defaultName);
-    setIsUploadModalOpen(true);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (ext === 'xlsx' || ext === 'xlsm') {
+      setIsInspectingSheets(true);
+      try {
+        const res = await datasetsApi.inspectSheets(file);
+        const fetchedSheets = res.data.sheets || [];
+        setSheets(fetchedSheets);
+        
+        if (fetchedSheets.includes('Main')) {
+          setSelectedSheet('Main');
+        } else if (fetchedSheets.includes('Data')) {
+          setSelectedSheet('Data');
+        } else if (fetchedSheets.length > 0) {
+          setSelectedSheet(fetchedSheets[0]);
+        } else {
+          setSelectedSheet('');
+        }
+        
+        setPendingFile(file);
+        setUploadName(defaultName);
+        setIsUploadModalOpen(true);
+      } catch (err: any) {
+        console.error('Failed to inspect sheets', err);
+        alert(err.response?.data?.message || 'Failed to inspect Excel workbook sheets.');
+      } finally {
+        setIsInspectingSheets(false);
+      }
+    } else {
+      setSheets([]);
+      setSelectedSheet('');
+      setPendingFile(file);
+      setUploadName(defaultName);
+      setIsUploadModalOpen(true);
+    }
   };
 
   const handleUploadConfirm = async () => {
     if (!pendingFile) return;
     setIsUploadModalOpen(false);
     const nameToUse = uploadName.trim() || pendingFile.name.replace(/\.[^.]+$/, '');
-    await handleFileUpload(pendingFile, nameToUse);
+    const finalName = selectedSheet ? `${nameToUse} (${selectedSheet})` : nameToUse;
+    await handleFileUpload(pendingFile, finalName, selectedSheet || undefined);
     setPendingFile(null);
     setUploadName('');
+    setSheets([]);
+    setSelectedSheet('');
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -196,10 +233,12 @@ export default function DatasetsPage() {
             : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
         )}
       >
-        {isUploading ? (
+        {isUploading || isInspectingSheets ? (
           <div className="flex flex-col items-center gap-2 text-blue-600">
             <Loader2 className="w-8 h-8 animate-spin" />
-            <p className="font-bold text-xs uppercase">Uploading...</p>
+            <p className="font-bold text-xs uppercase">
+              {isUploading ? "Uploading..." : "Inspecting workbook sheets..."}
+            </p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-center">
@@ -324,7 +363,16 @@ export default function DatasetsPage() {
         name={uploadName}
         setName={setUploadName}
         onConfirm={handleUploadConfirm}
-        onClose={() => { setIsUploadModalOpen(false); setPendingFile(null); setUploadName(''); }}
+        onClose={() => { 
+          setIsUploadModalOpen(false); 
+          setPendingFile(null); 
+          setUploadName(''); 
+          setSheets([]);
+          setSelectedSheet('');
+        }}
+        sheets={sheets}
+        selectedSheet={selectedSheet}
+        setSelectedSheet={setSelectedSheet}
       />
     </div>
   );
@@ -445,6 +493,9 @@ function UploadNameModal({
   setName,
   onConfirm,
   onClose,
+  sheets,
+  selectedSheet,
+  setSelectedSheet,
 }: {
   isOpen: boolean;
   fileName: string;
@@ -452,6 +503,9 @@ function UploadNameModal({
   setName: (v: string) => void;
   onConfirm: () => void;
   onClose: () => void;
+  sheets: string[];
+  selectedSheet: string;
+  setSelectedSheet: (v: string) => void;
 }) {
   if (!isOpen) return null;
 
@@ -473,7 +527,7 @@ function UploadNameModal({
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 space-y-4">
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
               Dataset Name <span className="text-red-400">*</span>
@@ -489,6 +543,28 @@ function UploadNameModal({
             />
             <p className="text-xs text-gray-400 mt-1">Give this dataset a meaningful name so you can find it later.</p>
           </div>
+
+          {sheets.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                Select Worksheet <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={selectedSheet}
+                onChange={(e) => setSelectedSheet(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900 cursor-pointer"
+              >
+                {sheets.map((sheet) => (
+                  <option key={sheet} value={sheet}>
+                    {sheet}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Select which sheet inside the workbook contains the thickness readings.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="p-6 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3">
