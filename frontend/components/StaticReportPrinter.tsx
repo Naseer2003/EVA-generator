@@ -477,7 +477,7 @@ export function generateReportHtml(run: any) {
               <strong>Calibration Block:</strong> <span>A 081 (50% Out Pitting)</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-              <strong>Total / Tested Legs:</strong> <span>${run.totalPopulation || '1140'} / ${run.result?.n_observations ?? '1138'}</span>
+              <strong>Total / Tested Legs:</strong> <span>${run.totalPopulation || run.result?.n_observations || '1140'} / ${run.result?.n_observations ?? '1138'}</span>
             </div>
           </div>
         </div>
@@ -754,8 +754,8 @@ export function generateGumbelPlotSvg(run: any) {
 
   const mu = run.mu;
   const beta = run.beta;
-  const n = run.nObservations || run.totalPopulation || 300;
-  const N = run.totalPopulation || 300;
+  const n = run.nObservations || run.totalPopulation || run.result?.n_observations || 300;
+  const N = run.totalPopulation || run.result?.n_observations || 300;
 
   // Calculate y_N for N
   const y_N = -Math.log(-Math.log(1.0 - 1.0 / N));
@@ -894,7 +894,7 @@ export function generateCdfPlotSvg(run: any) {
 
   const mu = run.mu;
   const beta = run.beta;
-  const N = run.totalPopulation || 300;
+  const N = run.totalPopulation || run.result?.n_observations || 300;
 
   // Calculate y_N for N
   const y_N = -Math.log(-Math.log(1.0 - 1.0 / N));
@@ -1339,7 +1339,7 @@ export function generateInspectionSummaryTable(run: any) {
     else counts.d9++;
   });
   
-  const totalLegs = run.totalPopulation || 1140;
+  const totalLegs = run.totalPopulation || run.result?.n_observations || 1140;
   const pluggedVal = counts.plugged;
   const restrictedVal = counts.restricted;
   const inspectedLegs = totalLegs - pluggedVal;

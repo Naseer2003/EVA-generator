@@ -208,7 +208,7 @@ export default function EngineeringReport() {
                 </div>
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Total / Tested Legs:</span>
-                  <span className="font-bold text-gray-800">{run.totalPopulation || 1140} / {run.result?.n_observations ?? 1138}</span>
+                  <span className="font-bold text-gray-800">{run.totalPopulation || run.result?.n_observations || 1140} / {run.result?.n_observations ?? 1138}</span>
                 </div>
               </div>
             </div>
