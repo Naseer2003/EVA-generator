@@ -83,7 +83,7 @@ export class EvaService {
             override_n: dto.totalPopulation,
             override_mu: 0.1964777532779039,
             override_beta: 0.07390893175803548
-          } : { override_n: dto.totalPopulation }),
+          } : {}),
         }),
       );
 

@@ -4,6 +4,59 @@
  * designed for robust browser printing (window.print) bypasses React CSS/hydration issues.
  */
 
+export function getStudentTValue(n: number, confidenceLevel: number): number {
+  if (n <= 1) return 0;
+  const df = n - 1;
+
+  // PVP2006 Table 1 values (for lookup)
+  const T_TABLE: Record<number, Record<number, number>> = {
+    2:  { 0.80: 3.078, 0.90: 6.314, 0.95: 12.706, 0.99: 63.657 },
+    3:  { 0.80: 1.886, 0.90: 2.920, 0.95: 4.303,  0.99: 9.925  },
+    4:  { 0.80: 1.638, 0.90: 2.353, 0.95: 3.182,  0.99: 5.841  },
+    5:  { 0.80: 1.533, 0.90: 2.132, 0.95: 2.776,  0.99: 4.604  },
+    6:  { 0.80: 1.476, 0.90: 2.015, 0.95: 2.571,  0.99: 4.032  },
+    7:  { 0.80: 1.440, 0.90: 1.943, 0.95: 2.447,  0.99: 3.707  },
+    8:  { 0.80: 1.415, 0.90: 1.895, 0.95: 2.365,  0.99: 3.499  },
+    9:  { 0.80: 1.397, 0.90: 1.860, 0.95: 2.306,  0.99: 3.355  },
+    10: { 0.80: 1.383, 0.90: 1.833, 0.95: 2.262,  0.99: 3.250  },
+    11: { 0.80: 1.372, 0.90: 1.812, 0.95: 2.228,  0.99: 3.169  },
+    12: { 0.80: 1.363, 0.90: 1.796, 0.95: 2.201,  0.99: 3.106  },
+    13: { 0.80: 1.356, 0.90: 1.782, 0.95: 2.179,  0.99: 3.055  },
+    14: { 0.80: 1.350, 0.90: 1.771, 0.95: 2.160,  0.99: 3.012  },
+    15: { 0.80: 1.345, 0.90: 1.761, 0.95: 2.145,  0.99: 2.977  },
+    16: { 0.80: 1.341, 0.90: 1.753, 0.95: 2.131,  0.99: 2.947  },
+    17: { 0.80: 1.337, 0.90: 1.746, 0.95: 2.120,  0.99: 2.921  },
+    18: { 0.80: 1.333, 0.90: 1.740, 0.95: 2.110,  0.99: 2.898  },
+    19: { 0.80: 1.330, 0.90: 1.734, 0.95: 2.101,  0.99: 2.878  },
+    20: { 0.80: 1.328, 0.90: 1.729, 0.95: 2.093,  0.99: 2.861  },
+    21: { 0.80: 1.325, 0.90: 1.725, 0.95: 2.086,  0.99: 2.845  },
+    22: { 0.80: 1.323, 0.90: 1.721, 0.95: 2.080,  0.99: 2.831  },
+    23: { 0.80: 1.321, 0.90: 1.717, 0.95: 2.074,  0.99: 2.819  },
+    24: { 0.80: 1.319, 0.90: 1.714, 0.95: 2.069,  0.99: 2.807  },
+    25: { 0.80: 1.318, 0.90: 1.711, 0.95: 2.064,  0.99: 2.797  },
+    26: { 0.80: 1.316, 0.90: 1.708, 0.95: 2.060,  0.99: 2.787  },
+    27: { 0.80: 1.315, 0.90: 1.706, 0.95: 2.056,  0.99: 2.779  },
+    28: { 0.80: 1.314, 0.90: 1.703, 0.95: 2.052,  0.99: 2.771  },
+    29: { 0.80: 1.313, 0.90: 1.701, 0.95: 2.048,  0.99: 2.763  },
+    30: { 0.80: 1.311, 0.90: 1.699, 0.95: 2.045,  0.99: 2.756  },
+    31: { 0.80: 1.310, 0.90: 1.697, 0.95: 2.042,  0.99: 2.750  }
+  };
+
+  if (T_TABLE[n]) {
+    const clMap = T_TABLE[n];
+    if (clMap[confidenceLevel] !== undefined) {
+      return clMap[confidenceLevel];
+    }
+  }
+
+  // Fallback / approximation for n > 31 using z-score and 1/df adjustment
+  if (confidenceLevel >= 0.99) return 2.576 + 5.2 / df;
+  if (confidenceLevel >= 0.95) return 1.960 + 2.5 / df;
+  if (confidenceLevel >= 0.90) return 1.645 + 1.6 / df;
+  if (confidenceLevel >= 0.80) return 1.282 + 0.85 / df;
+  return 1.960;
+}
+
 export function generateReportHtml(run: any) {
   if (!run) return '';
 
@@ -754,7 +807,7 @@ export function generateGumbelPlotSvg(run: any) {
 
   const mu = run.mu;
   const beta = run.beta;
-  const n = run.nObservations || run.totalPopulation || run.result?.n_observations || 300;
+  const n = run.result?.n_observations || run.dataset?.rowCount || run.nObservations || 30;
   const N = run.totalPopulation || run.result?.n_observations || 300;
 
   // Calculate y_N for N
@@ -815,15 +868,20 @@ export function generateGumbelPlotSvg(run: any) {
     return points.join(' ');
   };
 
-  // t-values: 80% (1.282), 90% (1.645), 95% (1.960), 99% (2.576)
-  const ci80Lower = `<polyline points="${getCiPoints(1.282, false)}" fill="none" stroke="#fef08a" stroke-width="0.8" />`;
-  const ci80Upper = `<polyline points="${getCiPoints(1.282, true)}" fill="none" stroke="#fef08a" stroke-width="0.8" />`;
-  const ci90Lower = `<polyline points="${getCiPoints(1.645, false)}" fill="none" stroke="#fde047" stroke-width="0.8" />`;
-  const ci90Upper = `<polyline points="${getCiPoints(1.645, true)}" fill="none" stroke="#fde047" stroke-width="0.8" />`;
-  const ci95Lower = `<polyline points="${getCiPoints(1.960, false)}" fill="none" stroke="#f472b6" stroke-width="1.0" />`;
-  const ci95Upper = `<polyline points="${getCiPoints(1.960, true)}" fill="none" stroke="#f472b6" stroke-width="1.0" />`;
-  const ci99Lower = `<polyline points="${getCiPoints(2.576, false)}" fill="none" stroke="#ef4444" stroke-width="1.0" stroke-dasharray="2,2" />`;
-  const ci99Upper = `<polyline points="${getCiPoints(2.576, true)}" fill="none" stroke="#ef4444" stroke-width="1.0" stroke-dasharray="2,2" />`;
+  // Lookup correct Student's t-values for sample size n
+  const t_80 = getStudentTValue(n, 0.80);
+  const t_90 = getStudentTValue(n, 0.90);
+  const t_95 = getStudentTValue(n, 0.95);
+  const t_99 = getStudentTValue(n, 0.99);
+
+  const ci80Lower = `<polyline points="${getCiPoints(t_80, false)}" fill="none" stroke="#fef08a" stroke-width="0.8" />`;
+  const ci80Upper = `<polyline points="${getCiPoints(t_80, true)}" fill="none" stroke="#fef08a" stroke-width="0.8" />`;
+  const ci90Lower = `<polyline points="${getCiPoints(t_90, false)}" fill="none" stroke="#fde047" stroke-width="0.8" />`;
+  const ci90Upper = `<polyline points="${getCiPoints(t_90, true)}" fill="none" stroke="#fde047" stroke-width="0.8" />`;
+  const ci95Lower = `<polyline points="${getCiPoints(t_95, false)}" fill="none" stroke="#f472b6" stroke-width="1.0" />`;
+  const ci95Upper = `<polyline points="${getCiPoints(t_95, true)}" fill="none" stroke="#f472b6" stroke-width="1.0" />`;
+  const ci99Lower = `<polyline points="${getCiPoints(t_99, false)}" fill="none" stroke="#ef4444" stroke-width="1.0" stroke-dasharray="2,2" />`;
+  const ci99Upper = `<polyline points="${getCiPoints(t_99, true)}" fill="none" stroke="#ef4444" stroke-width="1.0" stroke-dasharray="2,2" />`;
 
   // Draw Measured points (blue dots)
   const dots = plotData.probability_plot.tabular_data.map((row: any) => {
@@ -894,15 +952,17 @@ export function generateCdfPlotSvg(run: any) {
 
   const mu = run.mu;
   const beta = run.beta;
+  const n = run.result?.n_observations || run.dataset?.rowCount || run.nObservations || 30;
   const N = run.totalPopulation || run.result?.n_observations || 300;
 
   // Calculate y_N for N
   const y_N = -Math.log(-Math.log(1.0 - 1.0 / N));
   const x_N = mu + beta * y_N;
 
-  // Confidence limits for x_N (95% CI)
-  const se_N = beta * Math.sqrt((1.109 + 0.514 * y_N + 0.608 * y_N * y_N) / N);
-  const x_N_upper = x_N + 1.960 * se_N;
+  // Confidence limits for x_N (95% CI) using sample size n
+  const se_N = beta * Math.sqrt((1.109 + 0.514 * y_N + 0.608 * y_N * y_N) / n);
+  const t_95 = getStudentTValue(n, 0.95);
+  const x_N_upper = x_N + t_95 * se_N;
 
   // X range: 0.0 to xMax
   const maxObserved = Math.max(...plotData.probability_plot.tabular_data.map((d: any) => d.observed));
