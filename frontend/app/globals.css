@@ -1,16 +1,40 @@
 @import "tailwindcss";
 
+@theme {
+  --color-blue-50: #f0fdfa;
+  --color-blue-100: #ccfbf1;
+  --color-blue-200: #99f6e4;
+  --color-blue-300: #5eead4;
+  --color-blue-400: #2dd4bf;
+  --color-blue-500: #14b8a6;
+  --color-blue-600: #0d9488;
+  --color-blue-700: #0f766e;
+  --color-blue-800: #115e59;
+  --color-blue-900: #134e4a;
+
+  --color-gray-50: #f8fafc;
+  --color-gray-100: #f1f5f9;
+  --color-gray-200: #e2e8f0;
+  --color-gray-300: #cbd5e1;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1e293b;
+  --color-gray-900: #0f172a;
+}
+
 :root {
-  --background: #f9fafb;
-  --foreground: #111827;
+  --background: #f8fafc;
+  --foreground: #0f172a;
   --sidebar: #ffffff;
-  --border: #e5e7eb;
-  --primary: #2563eb;
+  --border: #e2e8f0;
+  --primary: #0d9488;
   --primary-foreground: #ffffff;
-  --muted: #6b7280;
-  --muted-foreground: #9ca3af;
-  --accent: #eff6ff;
-  --accent-foreground: #1d4ed8;
+  --muted: #64748b;
+  --muted-foreground: #94a3b8;
+  --accent: #f0fdfa;
+  --accent-foreground: #0f766e;
 }
 
 body {
@@ -23,8 +47,8 @@ body {
 
 /* Custom Scrollbar - Simplified for speed and cleanliness */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -32,12 +56,12 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #cbd5e1;
   border-radius: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #94a3b8;
 }
 
 @layer utilities {
@@ -46,3 +70,104 @@ body {
   }
 }
 
+/* ─── UI Utility Classes (used by AD Testing page) ─── */
+
+/* Select input */
+.select-dark {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #111827;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+.select-dark:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.1);
+}
+.select-dark option {
+  background: #ffffff;
+  color: #111827;
+}
+
+/* Text inputs */
+.input-dark {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #111827;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.input-dark::placeholder {
+  color: #9ca3af;
+}
+.input-dark:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.1);
+}
+
+/* Gold / primary action button */
+.btn-gold {
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.25);
+  transition: box-shadow 200ms ease, transform 100ms ease;
+  cursor: pointer;
+  border: none;
+}
+.btn-gold:hover:not(:disabled) {
+  box-shadow: 0 4px 20px rgba(13, 148, 136, 0.4);
+}
+.btn-gold:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-gold:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Expandable card row button */
+.card-row-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease;
+}
+.card-row-btn:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* N-total underline input */
+.input-ntotal {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(13, 148, 136, 0.4);
+  color: #111827;
+  outline: none;
+  width: 100%;
+  transition: border-bottom-color 150ms ease;
+}
+.input-ntotal:focus {
+  border-bottom-color: #0d9488;
+}
+
+/* Icon buttons */
+.icon-btn {
+  color: #6b7280;
+  border-radius: 8px;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  transition: background 150ms ease, color 150ms ease;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: rgba(13, 148, 136, 0.08);
+  color: #0d9488;
+}

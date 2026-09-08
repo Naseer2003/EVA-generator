@@ -25,12 +25,20 @@ dist/
 .env.test.local
 .env.production.local
 
-# Python venvs
+# Python venvs and cache
 venv/
 .venv/
 env/
+__pycache__/
+*.pyc
 
-# Local Uploads
+# Local Uploads and Scratch
 uploads/
 results/
 temp/
+scratch/
+*.txt
+audit_all.py
+verify_fix.py
+test_ad*.py
+list_all.*

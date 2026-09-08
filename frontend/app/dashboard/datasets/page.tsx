@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Upload, 
-  FileSpreadsheet, 
-  Trash2, 
-  Search, 
-  Plus, 
+import {
+  Upload,
+  FileSpreadsheet,
+  Trash2,
+  Search,
+  Plus,
   MoreHorizontal,
   Download,
   Filter,
@@ -41,7 +41,7 @@ export default function DatasetsPage() {
     const handleGlobalPaste = (e: ClipboardEvent) => {
       // Don't trigger if user is typing in an input or textarea
       if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
-      
+
       const text = e.clipboardData?.getData('text');
       if (text && text.trim().length > 0) {
         setPasteContent(text);
@@ -89,7 +89,7 @@ export default function DatasetsPage() {
         const res = await datasetsApi.inspectSheets(file);
         const fetchedSheets = res.data.sheets || [];
         setSheets(fetchedSheets);
-        
+
         if (fetchedSheets.includes('Main')) {
           setSelectedSheet('Main');
         } else if (fetchedSheets.includes('Data')) {
@@ -99,7 +99,7 @@ export default function DatasetsPage() {
         } else {
           setSelectedSheet('');
         }
-        
+
         setPendingFile(file);
         setUploadName(defaultName);
         setIsUploadModalOpen(true);
@@ -197,7 +197,7 @@ export default function DatasetsPage() {
           <p className="text-gray-500 text-sm mt-1">Manage your inspection data and statistical inputs.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={() => {
               setPasteContent('');
               setManualName('');
@@ -208,11 +208,11 @@ export default function DatasetsPage() {
             <Table className="w-4 h-4" />
             Paste Data
           </button>
-          <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 cursor-pointer">
+          <label className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 cursor-pointer">
             <Plus className="w-4 h-4" />
             Add New Dataset
-            <input 
-              type="file" 
+            <input
+              type="file"
               className="hidden"
               onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
               onChange={(e) => e.target.files?.[0] && handleFilePicked(e.target.files[0])}
@@ -222,19 +222,19 @@ export default function DatasetsPage() {
       </div>
 
       {/* Upload Zone */}
-      <div 
+      <div
         onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
         onDragLeave={() => setDragActive(false)}
         onDrop={handleDrop}
         className={cn(
           "relative h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center transition-colors duration-150",
-          dragActive 
-            ? "bg-blue-50 border-blue-500" 
+          dragActive
+            ? "bg-teal-50 border-teal-500"
             : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
         )}
       >
         {isUploading || isInspectingSheets ? (
-          <div className="flex flex-col items-center gap-2 text-blue-600">
+          <div className="flex flex-col items-center gap-2 text-teal-600">
             <Loader2 className="w-8 h-8 animate-spin" />
             <p className="font-bold text-xs uppercase">
               {isUploading ? "Uploading..." : "Inspecting workbook sheets..."}
@@ -257,14 +257,14 @@ export default function DatasetsPage() {
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search datasets..." 
-              className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-4 py-1.5 text-sm outline-none focus:border-blue-500 transition-colors placeholder:text-gray-400"
+            <input
+              type="text"
+              placeholder="Search datasets..."
+              className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-4 py-1.5 text-sm outline-none focus:border-teal-500 transition-colors placeholder:text-gray-400"
             />
           </div>
           <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider px-2">
-            <Database className="w-4 h-4 text-blue-600" />
+            <Database className="w-4 h-4 text-teal-600" />
             {datasets.length} Datasets
           </div>
         </div>
@@ -316,8 +316,8 @@ export default function DatasetsPage() {
                       <div className="flex justify-center">
                         <div className={cn(
                           "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5",
-                          dataset.status === 'VALIDATED' 
-                            ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                          dataset.status === 'VALIDATED'
+                            ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
                             : "bg-amber-50 text-amber-600 border border-amber-100"
                         )}>
                           {dataset.status === 'VALIDATED' ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
@@ -327,7 +327,7 @@ export default function DatasetsPage() {
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button 
+                        <button
                           onClick={() => handleDownload(dataset.id, dataset.name)}
                           className="p-2 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                         >
@@ -347,7 +347,7 @@ export default function DatasetsPage() {
       </div>
 
 
-      <PasteModal 
+      <PasteModal
         isOpen={isPasteModalOpen}
         onClose={() => setIsPasteModalOpen(false)}
         content={pasteContent}
@@ -363,10 +363,10 @@ export default function DatasetsPage() {
         name={uploadName}
         setName={setUploadName}
         onConfirm={handleUploadConfirm}
-        onClose={() => { 
-          setIsUploadModalOpen(false); 
-          setPendingFile(null); 
-          setUploadName(''); 
+        onClose={() => {
+          setIsUploadModalOpen(false);
+          setPendingFile(null);
+          setUploadName('');
           setSheets([]);
           setSelectedSheet('');
         }}
@@ -378,18 +378,18 @@ export default function DatasetsPage() {
   );
 }
 
-function PasteModal({ 
-  isOpen, 
-  onClose, 
-  content, 
-  setContent, 
-  name, 
-  setName, 
-  onSubmit 
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
-  content: string, 
+function PasteModal({
+  isOpen,
+  onClose,
+  content,
+  setContent,
+  name,
+  setName,
+  onSubmit
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  content: string,
   setContent: (v: string) => void,
   name: string,
   setName: (v: string) => void,
@@ -408,7 +408,7 @@ function PasteModal({
       <div className="bg-white rounded-lg w-full max-w-2xl overflow-hidden shadow-xl flex flex-col max-h-[80vh]">
         <div className="p-6 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded flex items-center justify-center text-blue-600">
+            <div className="w-10 h-10 bg-teal-50 border border-teal-100 rounded flex items-center justify-center text-teal-600">
               <Table className="w-5 h-5" />
             </div>
             <div>
@@ -424,12 +424,12 @@ function PasteModal({
         <div className="p-6 space-y-6 overflow-y-auto">
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Dataset Name</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Tank 42 Inspection 2024"
-              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900"
+              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-teal-500 outline-none text-gray-900"
             />
           </div>
 
@@ -443,39 +443,39 @@ function PasteModal({
                 {parsedValues.length} Values Detected
               </span>
             </label>
-            <textarea 
+            <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Paste columns here..."
-              className="w-full h-40 bg-gray-50 border border-gray-200 rounded-md p-3 text-sm font-mono focus:border-blue-500 outline-none text-gray-900 resize-none"
+              className="w-full h-40 bg-gray-50 border border-gray-200 rounded-md p-3 text-sm font-mono focus:border-teal-500 outline-none text-gray-900 resize-none"
             />
           </div>
 
           {parsedValues.length > 0 && (
             <div className="bg-gray-50 rounded-md p-3 border border-gray-100">
-               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2">Preview (First 10 values)</label>
-               <div className="flex flex-wrap gap-2">
-                 {parsedValues.slice(0, 10).map((v, i) => (
-                   <span key={i} className="px-2 py-0.5 bg-white text-gray-700 rounded border border-gray-200 text-[11px] font-mono">
-                     {v.toFixed(3)}
-                   </span>
-                 ))}
-               </div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2">Preview (First 10 values)</label>
+              <div className="flex flex-wrap gap-2">
+                {parsedValues.slice(0, 10).map((v, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-white text-gray-700 rounded border border-gray-200 text-[11px] font-mono">
+                    {v.toFixed(3)}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
         <div className="p-6 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3">
-          <button 
+          <button
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={onSubmit}
             disabled={parsedValues.length < 5}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors"
+            className="bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors"
           >
             Create Dataset
           </button>
@@ -514,7 +514,7 @@ function UploadNameModal({
       <div className="bg-white rounded-lg w-full max-w-md overflow-hidden shadow-xl">
         <div className="p-6 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded flex items-center justify-center text-blue-600">
+            <div className="w-10 h-10 bg-teal-50 border border-teal-100 rounded flex items-center justify-center text-teal-600">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
@@ -539,7 +539,7 @@ function UploadNameModal({
               onKeyDown={(e) => e.key === 'Enter' && name.trim() && onConfirm()}
               placeholder="e.g. Tank 42 Inspection 2024"
               autoFocus
-              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900"
+              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-teal-500 outline-none text-gray-900"
             />
             <p className="text-xs text-gray-400 mt-1">Give this dataset a meaningful name so you can find it later.</p>
           </div>
@@ -552,7 +552,7 @@ function UploadNameModal({
               <select
                 value={selectedSheet}
                 onChange={(e) => setSelectedSheet(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-blue-500 outline-none text-gray-900 cursor-pointer"
+                className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-teal-500 outline-none text-gray-900 cursor-pointer"
               >
                 {sheets.map((sheet) => (
                   <option key={sheet} value={sheet}>
@@ -577,7 +577,7 @@ function UploadNameModal({
           <button
             onClick={onConfirm}
             disabled={!name.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors"
+            className="bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors"
           >
             Upload Dataset
           </button>

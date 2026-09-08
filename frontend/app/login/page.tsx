@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
@@ -92,7 +92,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 focus:border-blue-600 focus:bg-white text-gray-900 pl-10 pr-10 py-2.5 rounded-md outline-none transition-colors placeholder:text-gray-400 text-sm"
-                  placeholder="••••••••"
+                  placeholder="ΓÇóΓÇóΓÇóΓÇóΓÇóΓÇóΓÇóΓÇó"
                 />
                 <button
                   type="button"

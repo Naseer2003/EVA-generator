@@ -46,6 +46,7 @@ export const datasetsApi = {
 export const evaApi = {
   run: (payload: {
     datasetId: string;
+    distribution?: string;
     method?: string;
     confidenceLevel?: number;
     returnPeriods?: number[];
@@ -58,6 +59,7 @@ export const evaApi = {
   }) => api.post('/eva/run', payload),
   getResults: (runId: string) => api.get(`/eva/${runId}/results`),
   getMyRuns: () => api.get('/eva/my-runs'),
+  runADTest: (datasetId: string, body?: { totalPopulation?: number }) => api.post(`/eva/ad-test/${datasetId}`, body ?? {}),
 };
 
 // Assets

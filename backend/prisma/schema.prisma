@@ -94,6 +94,8 @@ model EvaRun {
   beta                     Float?
   xi                       Float?
   adStatistic              Float?        @map("ad_statistic")
+  adPValue                 Float?        @map("ad_p_value")
+  adCriticalValue          Float?        @map("ad_critical_value")
   adPassed                 Boolean?      @map("ad_passed")
   ksStatistic              Float?        @map("ks_statistic")
   ksPValue                 Float?        @map("ks_p_value")

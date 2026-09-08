@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Any, Dict
 
 # ─── Request ───────────────────────────────────────────────────────────────────
 
@@ -44,9 +44,17 @@ class PlotData(BaseModel):
 
 
 class GoodnessOfFit(BaseModel):
-    ad_statistic: float
-    ad_critical_value: float
-    ad_passed: bool
+    # Anderson-Darling test (Gumbel-specific, sample-size-dependent CVs)
+    ad_statistic: float                          # Raw A² statistic
+    ad_p_value: Optional[float] = None           # Monte Carlo p-value
+    ad_critical_value: float                     # CV at primary α (sample-size-adjusted)
+    ad_critical_values: Optional[dict] = None    # CVs at all α levels {"0.20": cv, ...}
+    ad_passed: bool                              # AD < CV at primary α
+    ad_significance_level: float = 0.05          # Primary α used for pass/fail
+    ad_interpretation: Optional[str] = None      # Human-readable assessment
+    n_sample: Optional[int] = None               # Sample size used in test
+
+    # Kolmogorov-Smirnov test
     ks_statistic: float
     ks_p_value: float
 
@@ -58,3 +66,48 @@ class EVAResponse(BaseModel):
     return_levels: List[ReturnLevel]
     goodness_of_fit: GoodnessOfFit
     plot_data: PlotData
+
+
+# ─── AD Multi-Distribution Test ────────────────────────────────────────────────
+
+class ADTestRequest(BaseModel):
+    """Request for multi-distribution Anderson-Darling GOF testing."""
+    data: List[float]
+    significance_level: float = 0.05
+    # Engineering metadata (optional — passed through from backend)
+    total_population: Optional[int] = None       # N total tubes in exchanger
+    nominal_thickness: Optional[float] = None    # nominal wall thickness (mm)
+    report_name: Optional[str] = None            # e.g. "1E-3012"
+
+
+class DistributionResult(BaseModel):
+    """Result of an AD test for a single candidate distribution."""
+    distribution: str
+    ad_statistic: float
+    ad_modified: Optional[float] = None
+    critical_value: float
+    p_value: Optional[float] = None
+    passed: bool
+    parameters: Dict[str, Any] = {}
+    engineering_parameters: Optional[Dict[str, Any]] = None   # human-readable engineering params
+    rank: Optional[int] = None
+    h0: Optional[str] = None
+    decision: Optional[str] = None
+    formula: Optional[str] = None
+    cv_formula: Optional[str] = None
+    critical_values_all: Optional[Dict[str, float]] = None
+    interpretation: Optional[str] = None
+
+
+class ADTestResponse(BaseModel):
+    """Response from multi-distribution AD GOF testing."""
+    results: List[DistributionResult]
+    recommended: str              # Best-fit distribution name
+    n_observations: int           # n_tested = number of inspected tubes
+    n_total: Optional[int] = None            # N_total = total tubes in exchanger
+    nominal_thickness: Optional[float] = None  # nominal wall thickness (mm)
+    report_name: Optional[str] = None          # report/exchanger ID
+    significance_level: float
+    is_discretized: Optional[bool] = False
+    n_unique: Optional[int] = None
+    discretization_note: Optional[str] = None

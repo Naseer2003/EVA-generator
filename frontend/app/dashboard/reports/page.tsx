@@ -53,26 +53,26 @@ export default function ReportsPage() {
       </div>
 
       {/* Stats Quick View */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {[
-          { label: 'Total Reports', value: runs.length, icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Completed', value: runs.filter(r => r.status === 'COMPLETED').length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Average Life', value: '12.4 Yrs', icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Total Reports', value: runs.length, icon: FileText, color: 'text-teal-600', bg: 'bg-teal-50 border border-teal-100/50 shadow-sm shadow-teal-500/5' },
+          { label: 'Completed', value: runs.filter(r => r.status === 'COMPLETED').length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50 border border-emerald-100/50 shadow-sm shadow-emerald-500/5' },
+          { label: 'Average Life', value: '12.4 Yrs', icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50 border border-amber-100/50 shadow-sm shadow-amber-500/5' },
         ].map((stat, i) => (
-          <div key={i} className="bg-white border border-gray-200 p-4 rounded-lg flex items-center gap-4">
-            <div className={cn("w-10 h-10 rounded flex items-center justify-center", stat.bg)}>
+          <div key={i} className="bg-white border border-gray-200/80 p-5 rounded-xl flex items-center gap-4 hover:shadow-md hover:shadow-gray-200/10 hover:border-gray-300/60 transition-all duration-300 group">
+            <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-105", stat.bg)}>
               <stat.icon className={cn("w-5 h-5", stat.color)} />
             </div>
             <div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{stat.label}</p>
-              <p className="text-xl font-bold text-gray-900">{stat.value}</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{stat.label}</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">{stat.value}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* Reports List */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+      <div className="bg-white border border-gray-200/80 rounded-xl overflow-hidden shadow-sm shadow-gray-200/5">
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -81,7 +81,7 @@ export default function ReportsPage() {
               placeholder="Search by dataset or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-4 py-1.5 text-sm outline-none focus:border-blue-500 transition-colors placeholder:text-gray-400"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-9 pr-4 py-1.5 text-sm outline-none focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-500/10 transition-all placeholder:text-gray-400"
             />
           </div>
         </div>
@@ -132,7 +132,7 @@ export default function ReportsPage() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-bold uppercase tracking-wider border border-blue-100">
+                      <div className="inline-flex items-center px-2 py-0.5 rounded bg-teal-50 text-teal-600 text-[10px] font-bold uppercase tracking-wider border border-teal-100">
                         Gumbel
                       </div>
                     </td>
@@ -156,7 +156,7 @@ export default function ReportsPage() {
                     <td className="p-4 text-right">
                       <Link
                         href={`/dashboard/analysis/${run.id}`}
-                        className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-gray-200 rounded-md text-xs font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                        className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-teal-600 hover:border-teal-200 transition-all shadow-sm shadow-gray-200/5 cursor-pointer"
                       >
                         View Report
                         <ExternalLink className="w-3 h-3" />

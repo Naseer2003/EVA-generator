@@ -10,6 +10,10 @@ export class RunEvaDto {
   assetId?: string;
 
   @IsString()
+  @IsOptional()
+  distribution?: string;
+
+  @IsString()
   @IsIn(['mle', 'mom'])
   method: string = 'mle';
 

@@ -85,6 +85,7 @@ export class DatasetsService {
     if (ext === 'xlsx' || ext === 'xlsm') {
       let rawData: number[] = [];
       let tubes: any[] = [];
+      let measurements: any[] = [];
 
       try {
         const pythonPath = join(process.cwd(), '..', 'eva-engine', 'venv', 'Scripts', 'python');
@@ -99,6 +100,7 @@ export class DatasetsService {
         
         rawData = res.values || [];
         tubes = res.tubes || [];
+        measurements = res.measurements || [];
       } catch (err) {
         console.error('Failed to parse Excel file inside createDataset', err);
       }
@@ -115,9 +117,10 @@ export class DatasetsService {
       const csvPath = file.path.replace(/\.(xlsx|xlsm)$/i, '.csv');
       fs.writeFileSync(csvPath, csvContent, 'utf-8');
 
-      // Save tube coordinates metadata JSON in uploads/
+      // Save tube coordinates + measurements metadata JSON in uploads/
+      // measurements contains: { reportName, nominalThickness, remainingThickness, rowNo, tubeNo }
       const metaPath = csvPath.replace(/\.csv$/, '-meta.json');
-      fs.writeFileSync(metaPath, JSON.stringify({ tubes }, null, 2), 'utf-8');
+      fs.writeFileSync(metaPath, JSON.stringify({ tubes, measurements }, null, 2), 'utf-8');
 
       // Delete original Excel
       if (fs.existsSync(file.path)) {

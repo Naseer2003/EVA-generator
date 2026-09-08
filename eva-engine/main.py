@@ -16,7 +16,7 @@ check_venv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, analyze
+from app.api import health, analyze, ad_test
 from app.config import settings
 
 app = FastAPI(
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(analyze.router, prefix="/analyze", tags=["analyze"])
+app.include_router(ad_test.router, prefix="/ad-test", tags=["ad-test"])
 
 @app.get("/")
 def root():

@@ -13,6 +13,15 @@ export class EvaController {
     return this.evaService.runAnalysis(dto, req.user.id);
   }
 
+  @Post('ad-test/:datasetId')
+  runADTest(
+    @Param('datasetId') datasetId: string,
+    @Body() body: { totalPopulation?: number },
+    @Request() req: any,
+  ) {
+    return this.evaService.runADTest(datasetId, req.user.id, body?.totalPopulation);
+  }
+
   @Get(':id/results')
   getResults(@Param('id') id: string) {
     return this.evaService.getRunById(id);

@@ -145,13 +145,16 @@ export default function ResultsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-600 px-4 py-2 rounded-md text-xs font-bold transition-colors flex items-center gap-2">
-            <Download className="w-3.5 h-3.5" />
-            Export Data
-          </button>
+          <Link
+            href={`/dashboard/analysis/${run.id}/ad-test`}
+            className="bg-white hover:bg-gray-50 border border-gray-200 text-teal-700 px-4 py-2 rounded-md text-xs font-bold transition-colors flex items-center gap-2"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+            AD Fit Diagnostics
+          </Link>
           <Link
             href={`/dashboard/analysis/${run.id}/report`}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-xs font-bold transition-colors flex items-center gap-2"
+            className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-xs font-bold transition-colors flex items-center gap-2 shadow-sm"
           >
             <FileText className="w-3.5 h-3.5" />
             Full Document Report

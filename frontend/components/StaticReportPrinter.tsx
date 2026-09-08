@@ -1093,258 +1093,143 @@ export function generateTubeSheetMapSvg(run: any) {
   if (tubes.length === 0) return '';
   
   const rawName = run.dataset?.name || '';
-  const exchangerName = rawName.replace(/\.csv$/i, '').replace(/ original values/i, '').trim() || '2E-3012';
+  const exchangerName = rawName.replace(/\.csv$/i, '').replace(/ original values/i, '').trim() || 'Heat Exchanger';
 
-  const rows = tubes.map((t: any) => t.row);
-  const cols = tubes.map((t: any) => t.tube);
+  // Group tubes by row_tube to deduplicate and pick worst defect per coordinate
+  const tubeMap = new Map<string, any>();
+  for (const t of tubes) {
+    if (t.row && t.tube) {
+      const key = `${t.row}_${t.tube}`;
+      if (!tubeMap.has(key) || t.thickness < tubeMap.get(key).thickness) {
+        tubeMap.set(key, t);
+      }
+    }
+  }
+  const uniqueTubes = Array.from(tubeMap.values());
+  if (uniqueTubes.length === 0) return '';
+
+  const rows = uniqueTubes.map((t: any) => t.row);
+  const cols = uniqueTubes.map((t: any) => t.tube);
   const minRow = Math.min(...rows);
   const maxRow = Math.max(...rows);
   const minCol = Math.min(...cols);
   const maxCol = Math.max(...cols);
   
-  const centerRow = (minRow + maxRow) / 2;
-  const centerCol = (minCol + maxCol) / 2;
+  const colRange = Math.max(1, maxCol - minCol);
+  const rowRange = Math.max(1, maxRow - minRow);
+
+  const W = 780;
+  const aspect = rowRange / colRange;
+  const H = Math.min(850, Math.max(380, Math.round(W * aspect + 120)));
+  const padding = { left: 45, right: 45, top: 50, bottom: 65 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
   
-  // Construct grid of all tubes
-  const gridMap: { [key: string]: any } = {};
-  
-  // Pre-populate circular boundaries of the shell
+  const stepX = plotW / colRange;
+  const stepY = plotH / rowRange;
+  const step = Math.min(stepX, stepY);
+  const nodeRadius = Math.max(3, Math.min(6, step * 0.45));
+
+  const startX = padding.left + (plotW - colRange * step) / 2;
+  const startY = padding.top + (plotH - rowRange * step) / 2;
+
+  const tubeSvgElements = uniqueTubes.map((t: any) => {
+    const px = startX + (t.tube - minCol) * step;
+    const py = startY + (t.row - minRow) * step;
+    
+    const wl = Math.max(0, nominal - t.thickness);
+    const pct = (wl / nominal) * 100;
+
+    if (pct < 10) {
+      return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${nodeRadius.toFixed(1)}" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.5" />
+              <text x="${px.toFixed(1)}" y="${(py + nodeRadius * 0.35).toFixed(1)}" font-size="${Math.max(5, nodeRadius * 0.85).toFixed(1)}" fill="#9ca3af" font-weight="bold" text-anchor="middle">x</text>`;
+    }
+
+    let color = '#22c55e'; // Green
+    let label = '1';
+    if (pct >= 10 && pct < 20) { color = '#22c55e'; label = '1'; }
+    else if (pct >= 20 && pct < 30) { color = '#22c55e'; label = '2'; }
+    else if (pct >= 30 && pct < 40) { color = '#eab308'; label = '3'; }
+    else if (pct >= 40 && pct < 50) { color = '#eab308'; label = '4'; }
+    else if (pct >= 50 && pct < 60) { color = '#f97316'; label = '5'; }
+    else if (pct >= 60 && pct < 70) { color = '#f97316'; label = '6'; }
+    else if (pct >= 70 && pct < 80) { color = '#ef4444'; label = '7'; }
+    else if (pct >= 80 && pct < 90) { color = '#ef4444'; label = '8'; }
+    else { color = '#991b1b'; label = '9'; }
+
+    const boxSize = nodeRadius * 2;
+    return `<rect x="${(px - nodeRadius).toFixed(1)}" y="${(py - nodeRadius).toFixed(1)}" width="${boxSize.toFixed(1)}" height="${boxSize.toFixed(1)}" rx="2" ry="2" fill="${color}" stroke="#ffffff" stroke-width="0.5" />
+            <text x="${px.toFixed(1)}" y="${(py + nodeRadius * 0.35).toFixed(1)}" font-size="${Math.max(5, nodeRadius * 0.85).toFixed(1)}" fill="#ffffff" font-weight="bold" text-anchor="middle">${label}</text>`;
+  }).join('\n');
+
+  // Axis grid index labels
+  let labelElements = '';
+  const colStep = colRange > 50 ? 10 : colRange > 20 ? 5 : 1;
+  for (let c = minCol; c <= maxCol; c++) {
+    if (c === minCol || c === maxCol || c % colStep === 0) {
+      const px = startX + (c - minCol) * step;
+      labelElements += `<text x="${px.toFixed(1)}" y="${(padding.top - 12).toFixed(1)}" font-size="7" fill="#6b7280" font-weight="bold" text-anchor="middle">${c}</text>`;
+      labelElements += `<text x="${px.toFixed(1)}" y="${(H - padding.bottom + 16).toFixed(1)}" font-size="7" fill="#6b7280" font-weight="bold" text-anchor="middle">${c}</text>`;
+    }
+  }
+
+  const rowStep = rowRange > 50 ? 10 : rowRange > 20 ? 5 : 1;
   for (let r = minRow; r <= maxRow; r++) {
-    for (let c = minCol; c <= maxCol; c++) {
-      const dx = (c - centerCol) / (((maxCol - minCol) || 1) / 2);
-      const dy = (r - centerRow) / (((maxRow - minRow) || 1) / 2);
-      if (dx * dx + dy * dy <= 1.05) {
-        gridMap[`${r},${c}`] = {
-          row: r,
-          tube: c,
-          thickness: nominal,
-          isInspected: false
-        };
-      }
+    if (r === minRow || r === maxRow || r % rowStep === 0) {
+      const py = startY + (r - minRow) * step;
+      labelElements += `<text x="${(startX - 12).toFixed(1)}" y="${(py + 3).toFixed(1)}" font-size="7" fill="#6b7280" font-weight="bold" text-anchor="end">${r}</text>`;
+      labelElements += `<text x="${(startX + colRange * step + 12).toFixed(1)}" y="${(py + 3).toFixed(1)}" font-size="7" fill="#6b7280" font-weight="bold" text-anchor="start">${r}</text>`;
     }
   }
-  
-  // Overlay inspected tubes
-  tubes.forEach((t: any) => {
-    gridMap[`${t.row},${t.tube}`] = {
-      row: t.row,
-      tube: t.tube,
-      thickness: t.thickness,
-      isInspected: true
-    };
-  });
-  
-  const allTubes = Object.values(gridMap);
-  const totalRowRange = maxRow - minRow || 1;
-  const colRange = maxCol - minCol || 1;
-  const splitEnabled = totalRowRange >= 12;
 
-  const W = 750;
-  
-  if (splitEnabled) {
-    const H = 820;
-    const padding = { left: 40, right: 40 };
-    const plotW = W - padding.left - padding.right;
-    const midRow = Math.floor((minRow + maxRow) / 2);
-    const halfH = 320;
-    const topPadding = 50;
-    const bottomPadding = 450;
-    
-    // Scale steps to be uniform and preserve aspect ratio
-    const step = Math.min(plotW / colRange, (halfH - 20) / (midRow - minRow || 1));
-    const startX = padding.left + (plotW - colRange * step) / 2;
-    const startYTop = topPadding + (halfH - (midRow - minRow) * step) / 2;
-    const startYBottom = bottomPadding + (halfH - (maxRow - (midRow + 1)) * step) / 2;
+  const legendY = H - 22;
+  const legendElements = `
+    <g transform="translate(${W / 2 - 250}, ${legendY})" font-size="9" font-weight="600" font-family="sans-serif">
+      <!-- Category X (<10%) -->
+      <circle cx="10" cy="5" r="5" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.5" />
+      <text x="10" y="8" font-size="7" fill="#9ca3af" font-weight="bold" text-anchor="middle">x</text>
+      <text x="20" y="8" fill="#4b5563">&lt;10% (NDD)</text>
 
-    const renderTube = (t: any, py: number) => {
-      const px = startX + (t.tube - minCol) * step;
-      
-      const isPlugged = (t.row === 1 && t.tube === 35) || (t.row === 28 && t.tube === 39);
-      const isRestricted = (t.row === 9 && t.tube === 38);
-      
-      if (isPlugged) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#111827" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#ffffff" font-weight="bold" text-anchor="middle">P</text>`;
-      }
-      if (isRestricted) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#eab308" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#1f2937" font-weight="bold" text-anchor="middle">R</text>`;
-      }
-      
-      if (!t.isInspected) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#e5e7eb" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#9ca3af" font-weight="bold" text-anchor="middle">X</text>`;
-      }
+      <!-- Category 1-2 (10-30%) -->
+      <rect x="100" y="0" width="10" height="10" rx="2" fill="#22c55e" />
+      <text x="115" y="8" fill="#4b5563">10–30% Loss</text>
 
-      const wl = Math.max(0, nominal - t.thickness);
-      const pct = (wl / nominal) * 100;
-      
-      if (pct < 10) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#e5e7eb" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#9ca3af" font-weight="bold" text-anchor="middle">X</text>`;
-      }
+      <!-- Category 3-4 (30-50%) -->
+      <rect x="200" y="0" width="10" height="10" rx="2" fill="#eab308" />
+      <text x="215" y="8" fill="#4b5563">30–50% Loss</text>
 
-      let color = '#22c55e'; // Green
-      let label = '1';
-      if (pct >= 10 && pct < 20) { color = '#22c55e'; label = '1'; }
-      else if (pct >= 20 && pct < 30) { color = '#22c55e'; label = '2'; }
-      else if (pct >= 30 && pct < 40) { color = '#22c55e'; label = '3'; }
-      else if (pct >= 40 && pct < 50) { color = '#22c55e'; label = '4'; }
-      else if (pct >= 50 && pct < 60) { color = '#2563eb'; label = '5'; }
-      else if (pct >= 60 && pct < 70) { color = '#2563eb'; label = '6'; }
-      else if (pct >= 70 && pct < 80) { color = '#dc2626'; label = '7'; }
-      else if (pct >= 80 && pct < 90) { color = '#dc2626'; label = '8'; }
-      else { color = '#dc2626'; label = '9'; }
+      <!-- Category 5-6 (50-70%) -->
+      <rect x="300" y="0" width="10" height="10" rx="2" fill="#f97316" />
+      <text x="315" y="8" fill="#4b5563">50–70% Loss</text>
 
-      // Outside defects are squares
-      return `<rect x="${px - 6}" y="${py - 6}" width="12" height="12" rx="2.5" ry="2.5" fill="${color}" stroke="#ffffff" stroke-width="0.5" />
-              <text x="${px}" y="${py + 2}" font-size="6" fill="#ffffff" font-weight="bold" text-anchor="middle">${label}</text>`;
-    };
+      <!-- Category 7-9 (>70%) -->
+      <rect x="400" y="0" width="10" height="10" rx="2" fill="#ef4444" />
+      <text x="415" y="8" fill="#4b5563">&gt;70% Loss</text>
+    </g>
+  `;
 
-    const topTubes = allTubes.filter((t: any) => t.row <= midRow);
-    const bottomTubes = allTubes.filter((t: any) => t.row > midRow);
-
-    const topCircles = topTubes.map((t: any) => {
-      const py = startYTop + (t.row - minRow) * step;
-      return renderTube(t, py);
-    }).join('\n');
-
-    const bottomCircles = bottomTubes.map((t: any) => {
-      const py = startYBottom + (t.row - (midRow + 1)) * step;
-      return renderTube(t, py);
-    }).join('\n');
-
-    // Add row/col grid index labels
-    let labelElements = '';
-    // Col labels
-    for (let c = minCol; c <= maxCol; c++) {
-      if (c % 10 === 0) {
-        const px = startX + (c - minCol) * step;
-        // top map labels
-        labelElements += `<text x="${px}" y="${topPadding - 10}" font-size="7" fill="#9ca3af" text-anchor="middle">${c}</text>`;
-        // bottom map labels
-        labelElements += `<text x="${px}" y="${bottomPadding - 10}" font-size="7" fill="#9ca3af" text-anchor="middle">${c}</text>`;
-      }
-    }
-    // Row labels
-    for (let r = minRow; r <= maxRow; r++) {
-      if (r % 10 === 0) {
-        if (r <= midRow) {
-          const py = startYTop + (r - minRow) * step;
-          labelElements += `<text x="${startX - 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="end">${r}</text>`;
-          labelElements += `<text x="${startX + colRange * step + 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="start">${r}</text>`;
-        } else {
-          const py = startYBottom + (r - (midRow + 1)) * step;
-          labelElements += `<text x="${startX - 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="end">${r}</text>`;
-          labelElements += `<text x="${startX + colRange * step + 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="start">${r}</text>`;
-        }
-      }
-    }
-
-    return `
-      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; margin: 15px auto; display: block; font-family: sans-serif;">
-        <!-- Top Half -->
-        <text x="${W / 2}" y="${topPadding - 24}" font-size="12" font-weight="black" fill="#111827" text-anchor="middle">Top ${exchangerName}</text>
-        ${topCircles}
-        
-        <!-- Bottom Half -->
-        <text x="${W / 2}" y="${bottomPadding - 24}" font-size="12" font-weight="black" fill="#111827" text-anchor="middle">Bottom ${exchangerName}</text>
-        ${bottomCircles}
-        
-        <!-- Legend / Axis labels -->
-        ${labelElements}
-      </svg>
-    `;
-  } else {
-    // Single layout map
-    const H = 400;
-    const padding = { left: 40, right: 40, top: 60, bottom: 40 };
-    const plotW = W - padding.left - padding.right;
-    const plotH = H - padding.top - padding.bottom;
-    
-    const step = Math.min(plotW / colRange, plotH / totalRowRange);
-    const startX = padding.left + (plotW - colRange * step) / 2;
-    const startY = padding.top + (plotH - totalRowRange * step) / 2;
-
-    const circles = allTubes.map((t: any) => {
-      const px = startX + (t.tube - minCol) * step;
-      const py = startY + (t.row - minRow) * step;
-      
-      const isPlugged = (t.row === 1 && t.tube === 35) || (t.row === 28 && t.tube === 39);
-      const isRestricted = (t.row === 9 && t.tube === 38);
-      
-      if (isPlugged) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#111827" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#ffffff" font-weight="bold" text-anchor="middle">P</text>`;
-      }
-      if (isRestricted) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#eab308" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#1f2937" font-weight="bold" text-anchor="middle">R</text>`;
-      }
-
-      if (!t.isInspected) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#e5e7eb" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#9ca3af" font-weight="bold" text-anchor="middle">X</text>`;
-      }
-
-      const wl = Math.max(0, nominal - t.thickness);
-      const pct = (wl / nominal) * 100;
-      
-      if (pct < 10) {
-        return `<circle cx="${px}" cy="${py}" r="6" fill="#e5e7eb" stroke="#ffffff" stroke-width="0.5" />
-                <text x="${px}" y="${py + 2}" font-size="6" fill="#9ca3af" font-weight="bold" text-anchor="middle">X</text>`;
-      }
-
-      let color = '#22c55e';
-      let label = '1';
-      if (pct >= 10 && pct < 20) { color = '#22c55e'; label = '1'; }
-      else if (pct >= 20 && pct < 30) { color = '#22c55e'; label = '2'; }
-      else if (pct >= 30 && pct < 40) { color = '#22c55e'; label = '3'; }
-      else if (pct >= 40 && pct < 50) { color = '#22c55e'; label = '4'; }
-      else if (pct >= 50 && pct < 60) { color = '#2563eb'; label = '5'; }
-      else if (pct >= 60 && pct < 70) { color = '#2563eb'; label = '6'; }
-      else if (pct >= 70 && pct < 80) { color = '#dc2626'; label = '7'; }
-      else if (pct >= 80 && pct < 90) { color = '#dc2626'; label = '8'; }
-      else { color = '#dc2626'; label = '9'; }
-
-      return `<rect x="${px - 6}" y="${py - 6}" width="12" height="12" rx="2.5" ry="2.5" fill="${color}" stroke="#ffffff" stroke-width="0.5" />
-              <text x="${px}" y="${py + 2}" font-size="6" fill="#ffffff" font-weight="bold" text-anchor="middle">${label}</text>`;
-    }).join('\n');
-
-    let labelElements = '';
-    for (let c = minCol; c <= maxCol; c++) {
-      if (c % 10 === 0) {
-        const px = startX + (c - minCol) * step;
-        labelElements += `<text x="${px}" y="${padding.top - 10}" font-size="7" fill="#9ca3af" text-anchor="middle">${c}</text>`;
-      }
-    }
-    for (let r = minRow; r <= maxRow; r++) {
-      if (r % 10 === 0) {
-        const py = startY + (r - minRow) * step;
-        labelElements += `<text x="${startX - 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="end">${r}</text>`;
-        labelElements += `<text x="${startX + colRange * step + 15}" y="${py + 2}" font-size="7" fill="#9ca3af" text-anchor="start">${r}</text>`;
-      }
-    }
-
-    return `
-      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; margin: 15px auto; display: block; font-family: sans-serif;">
-        <text x="${W / 2}" y="25" font-size="12" font-weight="black" fill="#111827" text-anchor="middle">${exchangerName} Defect Layout Map</text>
-        ${circles}
-        ${labelElements}
-      </svg>
-    `;
-  }
+  return `
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; margin: 15px auto; display: block; font-family: sans-serif;">
+      <text x="${W / 2}" y="25" font-size="12" font-weight="black" fill="#111827" text-anchor="middle">${exchangerName} Tube Sheet Layout Map</text>
+      ${tubeSvgElements}
+      ${labelElements}
+      ${legendElements}
+    </svg>
+  `;
 }
 
 export function generateInspectionSummaryTable(run: any) {
   const nominal = run.originalThickness || 2.11;
   const tubes = getReportTubes(run);
   if (tubes.length === 0) return '';
-  
-  const minRow = Math.min(...tubes.map((t: any) => t.row));
-  const maxRow = Math.max(...tubes.map((t: any) => t.row));
-  const minCol = Math.min(...tubes.map((t: any) => t.tube));
-  const maxCol = Math.max(...tubes.map((t: any) => t.tube));
+
+  const rows = tubes.map((t: any) => t.row || 1);
+  const cols = tubes.map((t: any) => t.tube || 1);
+  const minRow = Math.min(...rows);
+  const maxRow = Math.max(...rows);
+  const minCol = Math.min(...cols);
+  const maxCol = Math.max(...cols);
+
   const centerRow = (minRow + maxRow) / 2;
   const centerCol = (minCol + maxCol) / 2;
 

@@ -90,8 +90,13 @@ def run_eva_analysis(request: EVARequest) -> EVAResponse:
 
     gof = GoodnessOfFit(
         ad_statistic=ad_res["ad_statistic"],
+        ad_p_value=ad_res.get("ad_p_value"),
         ad_critical_value=ad_res["ad_critical_value"],
+        ad_critical_values=ad_res.get("ad_critical_values"),
         ad_passed=ad_res["ad_passed"],
+        ad_significance_level=ad_res.get("ad_significance_level", 0.05),
+        ad_interpretation=ad_res.get("ad_interpretation"),
+        n_sample=ad_res.get("n_sample"),
         ks_statistic=ks_res["ks_statistic"],
         ks_p_value=ks_res["ks_p_value"],
     )

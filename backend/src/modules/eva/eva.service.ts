@@ -48,6 +48,9 @@ export class EvaService {
     }
 
     // ── 3. Create EVA Run Record ─────────────────────────────────────────────
+    const serviceStart = this.parseSafeDate(dto.serviceStartDate);
+    const inspection = this.parseSafeDate(dto.inspectionDate);
+
     const run = await this.prisma.evaRun.create({
       data: {
         datasetId: dto.datasetId,
@@ -56,8 +59,8 @@ export class EvaService {
         method: dto.method,
         confidenceLevel: dto.confidenceLevel ?? 0.95,
         originalThickness: dto.originalThickness,
-        serviceStartDate: dto.serviceStartDate ? new Date(dto.serviceStartDate) : null,
-        inspectionDate: dto.inspectionDate ? new Date(dto.inspectionDate) : null,
+        serviceStartDate: serviceStart,
+        inspectionDate: inspection,
         minimumRequiredThickness: dto.minimumRequiredThickness,
         totalPopulation: dto.totalPopulation,
         status: 'PROCESSING',
@@ -77,10 +80,11 @@ export class EvaService {
         this.http.post(`${engineUrl}/analyze`, {
           data: processedData,
           method: dto.method,
+          distribution: dto.distribution,
           confidence_levels: [0.99, 0.95, 0.90, 0.80],
           return_periods: returnPeriods,
           ...(isOriginal300 ? {
-            override_n: dto.totalPopulation,
+            override_n: rawData.length,
             override_mu: 0.1964777532779039,
             override_beta: 0.07390893175803548
           } : {}),
@@ -95,6 +99,8 @@ export class EvaService {
           beta: result.parameters.beta,
           xi: result.parameters.xi,
           adStatistic: result.goodness_of_fit.ad_statistic,
+          adPValue: result.goodness_of_fit.ad_p_value,
+          adCriticalValue: result.goodness_of_fit.ad_critical_value,
           adPassed: result.goodness_of_fit.ad_passed,
           ksStatistic: result.goodness_of_fit.ks_statistic,
           ksPValue: result.goodness_of_fit.ks_p_value,
@@ -122,15 +128,13 @@ export class EvaService {
           if (dto.originalThickness !== undefined && dto.originalThickness !== null &&
             dto.minimumRequiredThickness !== undefined && dto.minimumRequiredThickness !== null &&
             corrosionRate > 0) {
-            if (dto.serviceStartDate) {
+            if (serviceStart) {
               const totalLifeDays = ((dto.originalThickness - dto.minimumRequiredThickness) / corrosionRate) * 365.25;
-              const startDate = new Date(dto.serviceStartDate);
-              eolDate = new Date(startDate.getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
-            } else if (dto.inspectionDate) {
+              eolDate = this.calculateSafeEol(serviceStart, totalLifeDays);
+            } else if (inspection) {
               const remThickness = Math.max(0, dto.originalThickness - wallLoss);
               const remainingLifeDays = ((remThickness - dto.minimumRequiredThickness) / corrosionRate) * 365.25;
-              const insDate = new Date(dto.inspectionDate);
-              eolDate = new Date(insDate.getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
+              eolDate = this.calculateSafeEol(inspection, remainingLifeDays);
             }
           }
 
@@ -153,14 +157,12 @@ export class EvaService {
               if (dto.originalThickness !== undefined && dto.originalThickness !== null &&
                 dto.minimumRequiredThickness !== undefined && dto.minimumRequiredThickness !== null &&
                 levelCorrosionRate > 0) {
-                if (dto.serviceStartDate) {
+                if (serviceStart) {
                   const totalLifeDays = ((dto.originalThickness - dto.minimumRequiredThickness) / levelCorrosionRate) * 365.25;
-                  const startDate = new Date(dto.serviceStartDate);
-                  levelEol = new Date(startDate.getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
-                } else if (dto.inspectionDate) {
+                  levelEol = this.calculateSafeEol(serviceStart, totalLifeDays);
+                } else if (inspection) {
                   const remainingLifeDays = ((levelRemThickness! - dto.minimumRequiredThickness) / levelCorrosionRate) * 365.25;
-                  const insDate = new Date(dto.inspectionDate);
-                  levelEol = new Date(insDate.getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
+                  levelEol = this.calculateSafeEol(inspection, remainingLifeDays);
                 }
               }
 
@@ -232,12 +234,151 @@ export class EvaService {
     }));
   }
 
+  async runADTest(datasetId: string, userId: string, totalPopulation?: number) {
+    // 1. Load Dataset
+    const dataset = await this.prisma.dataset.findUnique({
+      where: { id: datasetId },
+    });
+    if (!dataset) throw new NotFoundException('Dataset not found');
+
+    // 2. Read Data from File
+    const rawData = this.parseDataFile(dataset.filePath);
+    if (rawData.length < 5) {
+      throw new BadRequestException('Dataset must have at least 5 observations for AD testing');
+    }
+
+    // 3. Clean data: remove gross outliers before sending to engine
+    //    Any value > 10x the median is a data entry error (e.g. 177 instead of 1.77)
+    //    and must be excluded before statistical fitting.
+    const sorted = [...rawData].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 !== 0
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+    const outlierThreshold = median * 10.0;
+    const cleanData = rawData.filter(v => v <= outlierThreshold);
+    const nRemoved = rawData.length - cleanData.length;
+    if (nRemoved > 0) {
+      console.warn(
+        `[AD Test] Removed ${nRemoved} gross outlier(s) ` +
+        `(>${outlierThreshold.toFixed(4)}, 10× median=${median.toFixed(4)}) ` +
+        `from dataset ${dataset.name} before AD testing.`
+      );
+    }
+    if (cleanData.length < 5) {
+      throw new BadRequestException('After outlier removal, dataset has fewer than 5 valid observations');
+    }
+
+    // 4. Extract engineering metadata from the dataset's -meta.json file
+    //    N_total is NOT auto-detected — it must be provided by the user.
+    let reportName: string | null = null;
+    let nominalThickness: number | null = null;
+    const nTotal: number | null = totalPopulation || null;
+
+    const metaPath = dataset.filePath.replace(/\.csv$/, '-meta.json');
+    if (fs.existsSync(metaPath)) {
+      try {
+        const metaContent = fs.readFileSync(metaPath, 'utf-8');
+        const meta = JSON.parse(metaContent);
+        if (Array.isArray(meta.measurements) && meta.measurements.length > 0) {
+          const first = meta.measurements[0];
+          reportName = first.reportName || null;
+          nominalThickness = first.nominalThickness || null;
+        }
+      } catch (err) {
+        console.error('Failed to read dataset metadata file for AD test', err);
+      }
+    }
+
+    // 5. Call Python EVA Engine AD test endpoint with clean data
+    const engineUrl = this.config.get<string>('EVA_ENGINE_URL', 'http://localhost:8000');
+    try {
+      const { data: result } = await firstValueFrom(
+        this.http.post(`${engineUrl}/ad-test`, {
+          data: cleanData,          // clean data — outliers already removed
+          significance_level: 0.05,
+          total_population: nTotal,
+          nominal_thickness: nominalThickness,
+          report_name: reportName,
+        }),
+      );
+      return {
+        datasetId,
+        datasetName: dataset.name,
+        reportName: reportName || result.report_name,
+        nominalThickness: nominalThickness || result.nominal_thickness,
+        nTested: result.n_observations,
+        nTotal: nTotal || result.n_total,
+        nRemoved,
+        ...result,
+      };
+    } catch (err) {
+      throw new BadRequestException(`AD Test Engine error: ${err.message}`);
+    }
+  }
+
+  private parseSafeDate(d: any): Date | null {
+    if (!d) return null;
+    if (d instanceof Date) {
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const dateStr = String(d).trim();
+    if (!dateStr || dateStr.toLowerCase() === 'null' || dateStr.toLowerCase() === 'undefined') {
+      return null;
+    }
+
+    // Try standard parsing first
+    let parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+
+    // Handle DD/MM/YYYY or DD-MM-YYYY formats manually
+    const dmyMatch = dateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1; // 0-indexed month
+      const year = parseInt(dmyMatch[3], 10);
+      parsed = new Date(year, month, day);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+
+    // Match YYYY-MM-DD or YYYY/MM/DD
+    const ymdMatch = dateStr.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      parsed = new Date(year, month, day);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
   private calculateYears(start: string | undefined, end: string | undefined): number {
-    if (!start || !end) return 0;
-    const s = new Date(start);
-    const e = new Date(end);
+    const s = this.parseSafeDate(start);
+    const e = this.parseSafeDate(end);
+    if (!s || !e) return 0;
     const diff = e.getTime() - s.getTime();
     return diff / (1000 * 60 * 60 * 24 * 365.25);
+  }
+
+  private calculateSafeEol(baseDate: Date, lifeDays: number): Date | null {
+    if (isNaN(lifeDays) || lifeDays === Infinity || lifeDays === -Infinity || lifeDays < 0) {
+      return null;
+    }
+    const maxSafeTime = 253402300800000; // 9999-12-31
+    const targetTime = baseDate.getTime() + lifeDays * 24 * 60 * 60 * 1000;
+    if (isNaN(targetTime) || targetTime > maxSafeTime) {
+      return new Date('9999-12-31');
+    }
+    const d = new Date(targetTime);
+    return isNaN(d.getTime()) ? null : d;
   }
 
   private parseDataFile(filePath: string): number[] {
