@@ -6,36 +6,25 @@ import Link from 'next/link';
 import {
   BarChart3,
   ChevronLeft,
-  Download,
   ShieldCheck,
   AlertCircle,
-  Activity,
-  ArrowUpRight,
   Info,
   CheckCircle2,
   XCircle,
   FileText,
-  Printer,
-  Table,
   Loader2,
   Settings,
   Zap,
-  TrendingUp,
   History
 } from 'lucide-react';
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  AreaChart,
-  ScatterChart,
   Scatter,
-  ZAxis,
   ComposedChart,
   ReferenceLine
 } from 'recharts';
@@ -88,6 +77,10 @@ export default function ResultsPage() {
 
   const result = run.result;
   const plotData = result?.plot_data;
+  // Provenance of what actually reached the fit: gross data-entry errors
+  // (>10x median) are stripped before the wall-loss conversion, so the fitted
+  // sample size can be smaller than the dataset's row count.
+  const dataQuality = result?.data_quality;
   const tabularData = plotData?.probability_plot?.tabular_data || [];
   const rowsPerPage = 15;
   const totalPages = Math.max(1, Math.ceil(tabularData.length / rowsPerPage));
@@ -107,12 +100,6 @@ export default function ResultsPage() {
     value: plotData.return_level_plot.values[i],
     ci_lower: plotData.return_level_plot.ci_lower[i],
     ci_upper: plotData.return_level_plot.ci_upper[i],
-  })) || [];
-
-  // 3. Probability (QQ) Plot Data
-  const qqPlotData = plotData?.probability_plot?.theoretical?.map((t: number, i: number) => ({
-    theoretical: t,
-    observed: plotData.probability_plot.observed[i],
   })) || [];
 
   return (
@@ -163,7 +150,7 @@ export default function ResultsPage() {
       </div>
 
       {/* Engineering Summary Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-200 p-5 rounded-lg shadow-sm">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
             <Zap className="w-3 h-3 text-blue-500" />
@@ -177,14 +164,6 @@ export default function ResultsPage() {
             Min. Required
           </p>
           <p className="text-2xl font-bold text-emerald-600 tracking-tight">{run.minimumRequiredThickness?.toFixed(3)} <span className="text-xs font-medium text-gray-400 ml-1">mm</span></p>
-        </div>
-        <div className="bg-white border border-gray-200 p-5 rounded-lg shadow-sm">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Service Entry</p>
-          <p className="text-lg font-bold text-gray-900 tracking-tight">{run.serviceStartDate ? new Date(run.serviceStartDate).toLocaleDateString() : 'N/A'}</p>
-        </div>
-        <div className="bg-white border border-gray-200 p-5 rounded-lg shadow-sm">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Last Inspection</p>
-          <p className="text-lg font-bold text-gray-900 tracking-tight">{run.inspectionDate ? new Date(run.inspectionDate).toLocaleDateString() : 'N/A'}</p>
         </div>
       </div>
 
@@ -208,6 +187,31 @@ export default function ResultsPage() {
           </div>
         </div>
 
+        {/* Data-quality disclosure — readings excluded from the statistical fit */}
+        {dataQuality?.n_removed > 0 && (
+          <div className="bg-blue-50/70 border-b border-blue-100 px-5 py-4 flex items-start gap-3.5">
+            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-blue-900 leading-relaxed font-medium">
+              <span className="font-bold uppercase tracking-wide text-[10px] text-blue-700 block mb-0.5">
+                Data Quality — {dataQuality.n_removed} Reading{dataQuality.n_removed === 1 ? '' : 's'} Excluded
+              </span>
+              {dataQuality.n_removed === 1 ? 'One reading was' : `${dataQuality.n_removed} readings were`} excluded as
+              a gross data-entry error:{' '}
+              <span className="font-bold font-mono text-blue-950">
+                {dataQuality.removed_values?.map((v: number) => v.toFixed(2)).join(', ')} mm
+              </span>
+              {' '}&mdash; above the{' '}
+              <span className="font-mono font-bold text-blue-950">{dataQuality.outlier_threshold?.toFixed(2)} mm</span>{' '}
+              cut-off (10&times; the sample median of{' '}
+              <span className="font-mono font-bold text-blue-950">{dataQuality.median?.toFixed(3)} mm</span>).
+              The Gumbel fit uses{' '}
+              <span className="font-bold text-blue-950">{dataQuality.n_used} of {dataQuality.n_parsed}</span>{' '}
+              parsed readings. Values like these are decimal-point typos; left in, they convert to a wall loss of
+              zero and inflate the scale parameter, which inflates every extrapolated return level.
+            </div>
+          </div>
+        )}
+
         {/* Warning Alert about Excel dragging bug if rowCount > 300 */}
         {run.dataset?.rowCount && run.dataset.rowCount > 300 && (
           <div className="bg-amber-50/75 border-b border-amber-100/70 px-5 py-4 flex items-start gap-3.5">
@@ -229,8 +233,6 @@ export default function ResultsPage() {
                 <th className="p-4">Confidence</th>
                 <th className="p-4">Max Wall Loss (mm)</th>
                 <th className="p-4">Rem. Thickness (mm)</th>
-                <th className="p-4">Corrosion Rate (mmpy)</th>
-                <th className="p-4">Predicted EOL</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -239,32 +241,16 @@ export default function ResultsPage() {
                 { label: 'B', confidence: '95%', levelKey: '95' },
                 { label: 'C', confidence: '90%', levelKey: '90' },
                 { label: 'D', confidence: '80%', levelKey: '80' }
-              ].map((rbi, idx) => {
+              ].map((rbi) => {
                 const rl = run.returnLevels?.find((r: any) => r.returnPeriod === run.totalPopulation) || run.returnLevels?.[run.returnLevels.length - 1];
                 if (!rl) return null;
 
                 const ciEntry = rl.allConfidences?.[rbi.levelKey];
                 const wallLoss = ciEntry?.wallLoss ?? ciEntry?.upper ?? rl.predictedValue;
                 const remThickness = ciEntry?.remainingThickness ?? ((run.originalThickness || 0) - wallLoss);
-                const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
-
-                let eolDateStr = 'N/A';
-                if (ciEntry?.eolDate) {
-                  eolDateStr = new Date(ciEntry.eolDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                } else if (corrosionRate > 0 && run.minimumRequiredThickness !== undefined && run.minimumRequiredThickness !== null) {
-                  let eol: Date;
-                  if (run.serviceStartDate) {
-                    const totalLifeDays = ((run.originalThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                    eol = new Date(new Date(run.serviceStartDate).getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
-                  } else {
-                    const remainingLifeDays = ((remThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                    eol = new Date(new Date(run.inspectionDate).getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
-                  }
-                  eolDateStr = eol.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                }
 
                 return (
-                  <tr key={idx} className="hover:bg-gray-50/50 transition-colors group">
+                  <tr key={rbi.label} className="hover:bg-gray-50/50 transition-colors group">
                     <td className="p-4">
                       <div className={cn(
                         "w-9 h-9 rounded bg-white border flex items-center justify-center font-bold text-base shadow-sm",
@@ -283,84 +269,6 @@ export default function ResultsPage() {
                         {remThickness.toFixed(3)}
                       </span>
                     </td>
-                    <td className="p-4 text-blue-600 font-mono font-bold text-sm">{corrosionRate.toFixed(4)}</td>
-                    <td className="p-4">
-                      <div className="flex flex-col">
-                        <span className={cn(
-                          "font-bold text-base tracking-tight",
-                          idx < 2 ? "text-emerald-600" : "text-amber-600"
-                        )}>
-                          {eolDateStr}
-                        </span>
-                        <span className="text-[9px] text-gray-400 uppercase font-bold tracking-tighter">EOL Estimate</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Asset Life & EOL Forecast (Excel Format Table) */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded bg-blue-50 border border-blue-100 flex items-center justify-center">
-              <Table className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="text-gray-900 font-bold tracking-tight uppercase text-xs tracking-wider">
-                Asset Life & EOL Forecast (Excel Format)
-              </h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter mt-0.5">Aligned with SI Version of EVA template</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                <th className="p-4">RBI Effectiveness</th>
-                <th className="p-4">Confidence Interval</th>
-                <th className="p-4">Minimum Remaining Thickness (mm)</th>
-                <th className="p-4">Corrosion Rate (mmpy)</th>
-                <th className="p-4">End of Life</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 font-mono text-sm font-semibold text-blue-600">
-              {[
-                { label: 'A', confidence: '99%', levelKey: '99' },
-                { label: 'B', confidence: '95%', levelKey: '95' },
-                { label: 'C', confidence: '90%', levelKey: '90' },
-                { label: 'D', confidence: '80%', levelKey: '80' }
-              ].map((rbi, idx) => {
-                const rl = run.returnLevels?.find((r: any) => r.returnPeriod === run.totalPopulation) || run.returnLevels?.[run.returnLevels.length - 1];
-                if (!rl) return null;
-
-                const ciEntry = rl.allConfidences?.[rbi.levelKey];
-                const wallLoss = ciEntry?.wallLoss ?? ciEntry?.upper ?? rl.predictedValue;
-                const remThickness = ciEntry?.remainingThickness ?? ((run.originalThickness || 0) - wallLoss);
-                const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
-
-                let eolDateStr = 'N/A';
-                if (ciEntry?.eolDate) {
-                  const eolD = new Date(ciEntry.eolDate);
-                  const mm = String(eolD.getMonth() + 1).padStart(2, '0');
-                  const dd = String(eolD.getDate()).padStart(2, '0');
-                  const yy = String(eolD.getFullYear()).slice(-2);
-                  eolDateStr = `${mm}-${dd}-${yy}`;
-                }
-
-                return (
-                  <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4 text-gray-900 font-sans font-bold">{rbi.label}</td>
-                    <td className="p-4 text-gray-500 font-sans font-bold">{rbi.confidence}</td>
-                    <td className="p-4 font-bold">{remThickness.toFixed(3)}</td>
-                    <td className="p-4 font-bold">{corrosionRate.toFixed(3)}</td>
-                    <td className="p-4 font-bold">{eolDateStr}</td>
                   </tr>
                 );
               })}

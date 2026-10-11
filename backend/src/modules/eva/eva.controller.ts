@@ -16,10 +16,10 @@ export class EvaController {
   @Post('ad-test/:datasetId')
   runADTest(
     @Param('datasetId') datasetId: string,
-    @Body() body: { totalPopulation?: number },
+    @Body() body: { originalThickness?: number },
     @Request() req: any,
   ) {
-    return this.evaService.runADTest(datasetId, req.user.id, body?.totalPopulation);
+    return this.evaService.runADTest(datasetId, req.user.id, body?.originalThickness);
   }
 
   @Get(':id/results')

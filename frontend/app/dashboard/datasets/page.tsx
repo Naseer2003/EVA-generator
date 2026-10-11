@@ -7,9 +7,7 @@ import {
   Trash2,
   Search,
   Plus,
-  MoreHorizontal,
   Download,
-  Filter,
   CheckCircle2,
   AlertTriangle,
   Loader2,
@@ -34,25 +32,9 @@ export default function DatasetsPage() {
   const [sheets, setSheets] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [isInspectingSheets, setIsInspectingSheets] = useState(false);
-
-  useEffect(() => {
-    fetchDatasets();
-
-    const handleGlobalPaste = (e: ClipboardEvent) => {
-      // Don't trigger if user is typing in an input or textarea
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
-
-      const text = e.clipboardData?.getData('text');
-      if (text && text.trim().length > 0) {
-        setPasteContent(text);
-        setManualName('');
-        setIsPasteModalOpen(true);
-      }
-    };
-
-    window.addEventListener('paste', handleGlobalPaste);
-    return () => window.removeEventListener('paste', handleGlobalPaste);
-  }, []);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchDatasets = async () => {
     setIsLoading(true);
@@ -65,6 +47,46 @@ export default function DatasetsPage() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    // The initial load is inlined rather than calling fetchDatasets(): that
+    // helper opens with setIsLoading(true), and a synchronous setState inside
+    // an effect triggers a cascading re-render. isLoading already starts true,
+    // so the first load only has to clear it. The cancelled flag stops a
+    // setState landing after unmount.
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await datasetsApi.getAll();
+        if (!cancelled) setDatasets(res.data);
+      } catch (err) {
+        console.error('Failed to fetch datasets', err);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      // Don't trigger if user is typing in an input or textarea
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
+      // Don't stack the paste modal on top of another open dialog — they share
+      // a z-index, so the result is two overlapping modals.
+      if (document.querySelector('[data-modal-open="true"]')) return;
+
+      const text = e.clipboardData?.getData('text');
+      if (text && text.trim().length > 0) {
+        setPasteContent(text);
+        setManualName('');
+        setIsPasteModalOpen(true);
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, []);
 
   const handleFileUpload = async (file: File, name?: string, sheetName?: string) => {
     setIsUploading(true);
@@ -166,28 +188,61 @@ export default function DatasetsPage() {
   };
 
   const handleDownload = async (id: string, name: string) => {
-    console.log('Downloading dataset ID:', id);
+    let url: string | null = null;
     try {
       const res = await datasetsApi.download(id);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', name);
+      // Datasets are always stored as CSV. Dataset names are free text and
+      // rarely carry an extension, so without this the browser saves an
+      // extensionless file that nothing will open.
+      const safe = name.replace(/[\\/:*?"<>|]/g, '_');
+      link.setAttribute('download', /\.csv$/i.test(safe) ? safe : `${safe}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
     } catch (err: any) {
       console.error('Download error:', err);
-      // If error is a blob, convert it to see the message
+      let message = err.response?.data?.message;
+      // With responseType 'blob' the error body is a Blob too, so the JSON
+      // message has to be read out of it — and it may not be JSON at all.
       if (err.response?.data instanceof Blob) {
-        const text = await err.response.data.text();
-        const json = JSON.parse(text);
-        alert(json.message || 'Failed to download dataset.');
-      } else {
-        alert(err.response?.data?.message || 'Failed to download dataset.');
+        try {
+          message = JSON.parse(await err.response.data.text())?.message;
+        } catch {
+          message = null;
+        }
       }
+      alert(message || 'Failed to download dataset.');
+    } finally {
+      // Always release the blob; otherwise every download leaks until reload.
+      if (url) window.URL.revokeObjectURL(url);
     }
   };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await datasetsApi.remove(deleteTarget.id);
+      setDeleteTarget(null);
+      fetchDatasets();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to delete dataset.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const normalisedQuery = searchQuery.trim().toLowerCase();
+  const filteredDatasets = normalisedQuery
+    ? datasets.filter(
+        (d) =>
+          d.name?.toLowerCase().includes(normalisedQuery) ||
+          d.id?.toLowerCase().includes(normalisedQuery),
+      )
+    : datasets;
 
   return (
     <div className="space-y-6">
@@ -259,13 +314,26 @@ export default function DatasetsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search datasets..."
-              className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-4 py-1.5 text-sm outline-none focus:border-teal-500 transition-colors placeholder:text-gray-400"
+              className="w-full bg-gray-50 border border-gray-200 rounded-md pl-9 pr-8 py-1.5 text-sm outline-none focus:border-teal-500 transition-colors placeholder:text-gray-400"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider px-2">
             <Database className="w-4 h-4 text-teal-600" />
-            {datasets.length} Datasets
+            {normalisedQuery
+              ? filteredDatasets.length + ' of ' + datasets.length + ' Datasets'
+              : datasets.length + ' Datasets'}
           </div>
         </div>
 
@@ -274,6 +342,7 @@ export default function DatasetsPage() {
             <thead>
               <tr className="bg-gray-50/50 border-b border-gray-100">
                 <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Dataset Name</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Observations (n)</th>
                 <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Date Uploaded</th>
                 <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
                 <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
@@ -284,19 +353,32 @@ export default function DatasetsPage() {
                 [1, 2, 3].map(i => (
                   <tr key={i}>
                     <td className="p-4"><div className="h-4 bg-gray-100 rounded w-48 animate-pulse" /></td>
+                    <td className="p-4"><div className="h-4 bg-gray-100 rounded w-12 ml-auto animate-pulse" /></td>
                     <td className="p-4"><div className="h-4 bg-gray-100 rounded w-24 animate-pulse" /></td>
                     <td className="p-4"><div className="flex justify-center"><div className="h-6 bg-gray-100 rounded-full w-20 animate-pulse" /></div></td>
                     <td className="p-4"><div className="h-8 bg-gray-100 rounded-md w-24 ml-auto animate-pulse" /></td>
                   </tr>
                 ))
-              ) : datasets.length === 0 ? (
+              ) : filteredDatasets.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-16 text-center">
-                    <p className="text-gray-400 text-sm">No datasets found.</p>
+                  <td colSpan={5} className="p-16 text-center">
+                    <p className="text-gray-400 text-sm">
+                      {normalisedQuery
+                        ? 'No datasets match that search.'
+                        : 'No datasets found.'}
+                    </p>
+                    {normalisedQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="text-teal-600 font-bold text-xs uppercase tracking-wider hover:underline mt-2 cursor-pointer"
+                      >
+                        Clear search
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
-                datasets.map((dataset) => (
+                filteredDatasets.map((dataset) => (
                   <tr key={dataset.id} className="hover:bg-gray-50/50 transition-colors group">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
@@ -308,6 +390,14 @@ export default function DatasetsPage() {
                           <p className="text-[10px] text-gray-400 uppercase tracking-tighter">ID: {dataset.id.slice(0, 8)}</p>
                         </div>
                       </div>
+                    </td>
+                    <td className="p-4 text-right">
+                      <span className={cn(
+                        "font-mono text-sm font-bold",
+                        (dataset.rowCount ?? 0) >= 5 ? "text-gray-900" : "text-amber-600"
+                      )}>
+                        {dataset.rowCount ?? '--'}
+                      </span>
                     </td>
                     <td className="p-4 text-sm text-gray-500">
                       {new Date(dataset.uploadedAt).toLocaleString()}
@@ -333,7 +423,11 @@ export default function DatasetsPage() {
                         >
                           <Download className="w-4 h-4" />
                         </button>
-                        <button className="p-2 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors">
+                        <button
+                          onClick={() => setDeleteTarget({ id: dataset.id, name: dataset.name })}
+                          aria-label={'Delete ' + dataset.name}
+                          className="p-2 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors cursor-pointer"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -374,6 +468,67 @@ export default function DatasetsPage() {
         selectedSheet={selectedSheet}
         setSelectedSheet={setSelectedSheet}
       />
+
+      <ConfirmDeleteModal
+        target={deleteTarget}
+        isDeleting={isDeleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteConfirm}
+      />
+    </div>
+  );
+}
+
+function ConfirmDeleteModal({
+  target,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  target: { id: string; name: string } | null;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!target) return null;
+
+  return (
+    <div data-modal-open="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-lg w-full max-w-md overflow-hidden shadow-xl">
+        <div className="p-6 flex items-start gap-4">
+          <div className="w-10 h-10 bg-red-50 border border-red-100 rounded flex items-center justify-center text-red-600 shrink-0">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 tracking-tight">Delete dataset?</h2>
+            <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">
+              <span className="font-semibold text-gray-900">{target.name}</span> and its stored file
+              will be permanently removed. This cannot be undone.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Datasets still referenced by an analysis run cannot be deleted.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 pt-0 flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-6 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 cursor-pointer"
+          >
+            {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -404,7 +559,7 @@ function PasteModal({
     .filter(v => !isNaN(v));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+    <div data-modal-open="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-lg w-full max-w-2xl overflow-hidden shadow-xl flex flex-col max-h-[80vh]">
         <div className="p-6 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -510,7 +665,7 @@ function UploadNameModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+    <div data-modal-open="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-lg w-full max-w-md overflow-hidden shadow-xl">
         <div className="p-6 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">

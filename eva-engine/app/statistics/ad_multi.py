@@ -59,7 +59,7 @@ def ad_test_normal(data: np.ndarray, significance_level: float = 0.05,
     modifier = 1 + 0.75 / n + 2.25 / (n * n)
     ad_star = ad_stat * modifier
     cv = 0.752 / modifier
-    p_value = _normal_ad_pvalue(ad_star)
+    p_value, p_is_bound = _normal_ad_pvalue(ad_star)
     passed = ad_stat < cv
 
     # Engineering parameters with proper labels
@@ -76,7 +76,9 @@ def ad_test_normal(data: np.ndarray, significance_level: float = 0.05,
         "ad_statistic": round(ad_stat, 6),
         "ad_modified": round(ad_star, 6),
         "critical_value": round(cv, 6),
-        "p_value": round(p_value, 6) if p_value is not None else None,
+        "p_value": p_value,
+        "p_value_is_bound": p_is_bound,
+        "p_value_method": "D'Agostino & Stephens (1986) approximation",
         "passed": passed,
         "h0": "H0: Data follows a Normal distribution",
         "decision": "Fail to Reject H0 (No reason to reject)" if passed else "Reject H0 (Fit is rejected)",
@@ -88,20 +90,38 @@ def ad_test_normal(data: np.ndarray, significance_level: float = 0.05,
     }
 
 
-def _normal_ad_pvalue(ad_star: float) -> float:
-    """Approximate p-value for Normal AD test (D'Agostino & Stephens, 1986)."""
+# Smallest p we will ever report. A p-value is never exactly zero, and a hard
+# 0.0 renders as "0.0000" which reads like a computed result rather than an
+# underflow. This is a representational floor only -- it is applied far below
+# any decision threshold and is always accompanied by p_value_is_bound=True.
+_P_MIN = 1e-300
+
+
+def _normal_ad_pvalue(ad_star: float) -> tuple:
+    """
+    Approximate p-value for the Normal AD test (D'Agostino & Stephens, 1986).
+
+    Returns (p_value, is_bound). The published approximation is fitted for
+    AD* up to about 10; past that the branch is a smooth continuation of the
+    same expression and should be read as "effectively zero" rather than as a
+    calibrated probability, so is_bound is set.
+
+    NOTE: this used to floor the result at 1e-4 "so the UI never shows 0.0000".
+    That silently inflated every rejected fit to the same fake number and made
+    it impossible to reproduce the reference values in the source papers.
+    """
+    is_bound = False
     if ad_star < 0.2:
         p = 1.0 - np.exp(-13.436 + 101.14 * ad_star - 223.73 * ad_star**2)
     elif ad_star < 0.34:
         p = 1.0 - np.exp(-8.318 + 42.796 * ad_star - 59.938 * ad_star**2)
     elif ad_star < 0.6:
         p = np.exp(0.9177 - 4.279 * ad_star - 1.38 * ad_star**2)
-    elif ad_star < 10:
-        p = np.exp(1.2937 - 5.709 * ad_star + 0.0186 * ad_star**2)
     else:
-        p = 0.0
-    # Floor to 0.0001 so UI never displays exact '0.0000'
-    return float(np.clip(max(p, 0.0001), 0.0001, 1.0))
+        # Same expression beyond its fitted range; flag it rather than hide it.
+        p = np.exp(1.2937 - 5.709 * ad_star + 0.0186 * ad_star**2)
+        is_bound = ad_star >= 10.0
+    return float(np.clip(p, _P_MIN, 1.0)), bool(is_bound)
 
 
 def ad_test_lognormal(data: np.ndarray, significance_level: float = 0.05,
@@ -166,20 +186,9 @@ def ad_test_weibull(data: np.ndarray, significance_level: float = 0.05,
     ad_stat = _ad_statistic_generic(x_sorted, F)
     ad_star = (1 + 0.2 / np.sqrt(n)) * ad_stat
 
-    if ad_star > 0:
-        # Reference: START 2003-5, Romeu (A_DTest.md), Eq. after Table 7.
-        # OSL = 1 / (1 + exp[-0.1 + 1.24*ln(AD*) + 4.48*(AD*)])
-        # Note: exp argument IS osl_exp itself (NOT -osl_exp).
-        # Verified: AD*=2.9227 → osl_exp=14.32 → OSL=6e-7 (matches paper).
-        osl_exp = -0.1 + 1.24 * np.log(max(ad_star, 1e-10)) + 4.48 * ad_star
-        osl = 1.0 / (1.0 + np.exp(np.clip(osl_exp, -500, 500)))
-    else:
-        osl = 1.0
-
+    osl = _osl(ad_star)
     # OSL is the p-value: reject H0 when OSL < alpha (bad fit = large AD, small OSL)
     passed = osl > significance_level
-    # Floor p-value to avoid displaying exact 0
-    osl = max(osl, 0.0001)
     cv = _weibull_approximate_cv(n, significance_level)
 
     # Engineering parameters
@@ -196,7 +205,9 @@ def ad_test_weibull(data: np.ndarray, significance_level: float = 0.05,
         "ad_statistic": round(ad_stat, 6),
         "ad_modified": round(ad_star, 6),
         "critical_value": round(cv, 6),
-        "p_value": round(osl, 6),
+        "p_value": osl,
+        "p_value_is_bound": False,
+        "p_value_method": "OSL, START 2003-5 (Romeu) closed form",
         "passed": passed,
         "h0": "H0: Data follows a Weibull distribution",
         "decision": "Fail to Reject H0 (No reason to reject)" if passed else "Reject H0 (Fit is rejected)",
@@ -209,6 +220,23 @@ def ad_test_weibull(data: np.ndarray, significance_level: float = 0.05,
         "cv_formula": "OSL = 1/(1+exp[-0.1+1.24*ln(AD*)+4.48*AD*]); reject if OSL < alpha",
         "interpretation": _build_interpretation("Weibull", ad_stat, cv, osl, passed, n),
     }
+
+
+def _osl(ad_star: float) -> float:
+    """
+    Observed Significance Level for the Weibull / Exponential AD test.
+
+    START 2003-5 (Romeu), formula following Table 7:
+        OSL = 1 / (1 + exp[-0.1 + 1.24*ln(AD*) + 4.48*AD*])
+
+    Evaluated as sigmoid(-z) via logaddexp so it stays accurate deep into the
+    tail instead of underflowing to 0. Verified against the paper's own worked
+    counterexample: AD* = 2.9227 -> OSL = 6.02e-07 (paper quotes 6e-07).
+    """
+    if ad_star <= 0:
+        return 1.0
+    z = -0.1 + 1.24 * np.log(max(ad_star, 1e-10)) + 4.48 * ad_star
+    return float(np.clip(np.exp(-np.logaddexp(0.0, z)), _P_MIN, 1.0))
 
 
 def _weibull_approximate_cv(n: int, alpha: float = 0.05) -> float:
@@ -249,17 +277,9 @@ def ad_test_exponential(data: np.ndarray, significance_level: float = 0.05,
     ad_stat = _ad_statistic_generic(x_sorted, F)
     ad_star = (1 + 0.2 / np.sqrt(n)) * ad_stat
 
-    if ad_star > 0:
-        # Same OSL formula as Weibull (Exponential is Weibull with beta=1)
-        osl_exp_val = -0.1 + 1.24 * np.log(max(ad_star, 1e-10)) + 4.48 * ad_star
-        osl = 1.0 / (1.0 + np.exp(np.clip(osl_exp_val, -500, 500)))
-    else:
-        osl = 1.0
-
-    # OSL is the p-value: reject H0 when OSL < alpha
+    # Exponential is Weibull with beta = 1, so the same OSL applies.
+    osl = _osl(ad_star)
     passed = osl > significance_level
-    # Floor p-value to avoid displaying exact 0
-    osl = max(osl, 0.0001)
     cv = _weibull_approximate_cv(n, significance_level)
 
     # Engineering parameters
@@ -276,7 +296,9 @@ def ad_test_exponential(data: np.ndarray, significance_level: float = 0.05,
         "ad_statistic": round(ad_stat, 6),
         "ad_modified": round(ad_star, 6),
         "critical_value": round(cv, 6),
-        "p_value": round(osl, 6),
+        "p_value": osl,
+        "p_value_is_bound": False,
+        "p_value_method": "OSL, START 2003-5 (Romeu) closed form",
         "passed": passed,
         "h0": "H0: Data follows an Exponential distribution",
         "decision": "Fail to Reject H0 (No reason to reject)" if passed else "Reject H0 (Fit is rejected)",
@@ -339,7 +361,7 @@ def ad_test_gumbel(data: np.ndarray, significance_level: float = 0.05,
     for idx, a in enumerate(_ALPHA_LEVELS):
         all_cvs[f"{a:.2f}"] = round(_interpolate_gumbel_cv(n, idx), 4)
 
-    p_value = _gumbel_monte_carlo_pvalue(ad_stat, n, mu, beta, n_sim=5000)
+    p_value, p_is_bound, n_sim = _gumbel_monte_carlo_pvalue(ad_stat, n, mu, beta, n_sim=5000)
     passed = ad_stat < cv
 
     # Engineering parameters — EV Type I (Gumbel) per PVP2006/ASTM E2283
@@ -361,7 +383,9 @@ def ad_test_gumbel(data: np.ndarray, significance_level: float = 0.05,
         "ad_modified": None,
         "critical_value": round(cv, 6),
         "critical_values_all": all_cvs,
-        "p_value": round(p_value, 6) if p_value is not None else None,
+        "p_value": p_value,
+        "p_value_is_bound": p_is_bound,
+        "p_value_method": f"Monte Carlo, {n_sim} trials with MLE re-estimation; (b+1)/(m+1)",
         "passed": passed,
         "h0": "H0: Data follows a Gumbel distribution",
         "decision": "Fail to Reject H0 (No reason to reject)" if passed else "Reject H0 (Fit is rejected)",
@@ -375,8 +399,20 @@ def ad_test_gumbel(data: np.ndarray, significance_level: float = 0.05,
 
 def _gumbel_monte_carlo_pvalue(
     ad_observed: float, n: int, mu: float, beta: float, n_sim: int = 5000
-) -> float:
-    """Monte Carlo p-value for Gumbel AD test."""
+) -> tuple:
+    """
+    Monte Carlo p-value for the Gumbel AD test.
+
+    Returns (p_value, is_bound, n_effective).
+
+    Uses the (b+1)/(m+1) estimator rather than the naive b/m. With b = 0
+    exceedances the naive ratio reports p = 0 exactly, which is impossible and
+    was previously papered over by flooring at 1e-4 -- a number with no
+    statistical meaning. (b+1)/(m+1) is the standard correction (North, Curtis
+    & Sham 2002, Am J Hum Genet 71:439); when b = 0 it equals 1/(m+1), which is
+    exactly the resolution limit of the simulation, so it is reported as an
+    upper bound.
+    """
     rng = np.random.default_rng(42)
     count = 0
     for _ in range(n_sim):
@@ -393,8 +429,8 @@ def _gumbel_monte_carlo_pvalue(
         ad_s = _ad_statistic_generic(synthetic, F_s)
         if ad_s >= ad_observed:
             count += 1
-    # Floor to 0.0001 so UI never displays exact '0.0000'
-    return max(count / n_sim, 0.0001)
+    p = (count + 1) / (n_sim + 1)
+    return float(p), bool(count == 0), int(n_sim)
 
 
 def run_multi_distribution_ad_test(
@@ -437,16 +473,49 @@ def run_multi_distribution_ad_test(
     if len(arr) < 5:
         raise ValueError(f"After outlier removal, need at least 5 data points, got {len(arr)}")
 
-    # Check for measurement discretization / ties
+    # ── Measurement resolution / ties ──────────────────────────────────────
+    #
+    # Every Anderson-Darling critical value assumes a CONTINUOUS distribution,
+    # under which ties occur with probability zero. Quantised inspection data
+    # (e.g. eddy-current defect depths recorded in 10% bands) produces a
+    # staircase empirical CDF that no continuous model can follow, so A2 is
+    # inflated by the resolution of the instrument rather than by any mismatch
+    # of distribution. Verified: a sample drawn from a PERFECT Gumbel gives
+    # A2 = 0.28 (pass) at full precision, 2.59 at 1% quantisation and 60.27 at
+    # 10% quantisation -- same distribution throughout, only resolution changes.
+    #
+    # The old rule (n_unique < 15) was an absolute cut-off that scaled wrongly
+    # with n and missed a 366-reading file with exactly 15 levels. Tie fraction
+    # is scale-free: it is ~0 for continuous data and ~1 for heavily binned data.
     u_vals = np.unique(arr)
     n_unique = int(len(u_vals))
-    is_discretized = n_unique < 15 and len(arr) >= 20
+    n_obs = int(len(arr))
+    tie_fraction = 1.0 - (n_unique / n_obs) if n_obs else 0.0
+    is_discretized = bool(n_obs >= 20 and tie_fraction > 0.5)
+
+    # Smallest positive step between distinct readings -- the apparent
+    # instrument resolution.
+    resolution = float(np.min(np.diff(u_vals))) if n_unique > 1 else None
+
+    # When the data is this heavily tied the test is not merely "failing", it is
+    # inapplicable: a pass is arithmetically unreachable. Say so, rather than
+    # reporting a rejection the user will read as "none of these distributions
+    # describe my corrosion".
+    gof_applicable = not is_discretized
+
     disc_note = None
     if is_discretized:
         disc_note = (
-            f"Inspection measurements exhibit discrete step resolution ({n_unique} unique values across {len(arr)} readings). "
-            f"Heavy measurement ties cause continuous AD statistics to be elevated. "
-            f"Distributions are ranked by lowest relative AD statistic (best fit)."
+            f"These readings take only {n_unique} distinct values across {n_obs} measurements "
+            f"({tie_fraction * 100:.1f}% ties"
+            + (f", apparent resolution {resolution:.4g} mm" if resolution else "")
+            + "). The Anderson-Darling test assumes a continuous distribution, under which "
+            f"ties cannot occur, so the statistic is inflated by instrument resolution rather "
+            f"than by distributional mismatch -- no candidate can pass at this resolution, "
+            f"whatever the true distribution is. Treat the ranking below as RELATIVE fit only "
+            f"(lowest A2 = closest), not as a hypothesis test. For an absolute goodness-of-fit "
+            f"verdict, supply quantitative thickness measurements (e.g. IRIS/UT) rather than "
+            f"banded defect-depth estimates."
         )
 
     results = []
@@ -478,8 +547,27 @@ def run_multi_distribution_ad_test(
         "significance_level": significance_level,
         "is_discretized": is_discretized,
         "n_unique": n_unique,
+        "tie_fraction": tie_fraction,
+        "resolution": resolution,
+        "gof_applicable": gof_applicable,
         "discretization_note": disc_note,
     }
+
+
+def fmt_p(p: float | None, is_bound: bool = False) -> str:
+    """
+    Render a p-value without destroying it.
+
+    '%.4f' turns 6e-07 into '0.0000', which reads like a computed zero. Small
+    p-values switch to scientific notation so the magnitude survives, and a
+    bounded value is prefixed with '<'.
+    """
+    if p is None:
+        return "n/a"
+    prefix = "< " if is_bound else ""
+    if p >= 1e-4:
+        return f"{prefix}{p:.4f}"
+    return f"{prefix}{p:.2e}"
 
 
 def _build_interpretation(
@@ -502,12 +590,13 @@ def _build_interpretation(
         )
         
     if p_value is not None:
+        shown = fmt_p(p_value)
         if p_value >= 0.15:
-            parts.append(f"(p-value={p_value:.4f}: strong evidence supporting the fit).")
+            parts.append(f"(p-value={shown}: strong evidence supporting the fit).")
         elif p_value >= 0.05:
-            parts.append(f"(p-value={p_value:.4f}: acceptable fit).")
+            parts.append(f"(p-value={shown}: acceptable fit).")
         else:
-            parts.append(f"(p-value={p_value:.4f}: statistically significant deviation).")
+            parts.append(f"(p-value={shown}: statistically significant deviation).")
             
     if n < 10:
         parts.append(f"Note: Sample size n={n} is very small; AD test power is limited.")
@@ -520,8 +609,10 @@ def _empty_result(dist_name: str, reason: str) -> Dict[str, Any]:
         "distribution": dist_name,
         "ad_statistic": float("inf"),
         "ad_modified": None,
-        "critical_value": 0.0,
-        "p_value": 0.0,
+        "critical_value": None,
+        "p_value": None,
+        "p_value_is_bound": None,
+        "p_value_method": None,
         "passed": False,
         "h0": f"H0: Data follows a {dist_name} distribution",
         "decision": "Skipped (Insufficient data)",

@@ -28,23 +28,42 @@ export class EvaService {
       throw new BadRequestException('Dataset must have at least 5 observations');
     }
 
+    // ── 2a. Strip gross data-entry errors BEFORE the wall-loss conversion ───
+    // This ordering matters. `Math.max(0, origT - v)` maps a bogus reading like
+    // 177.0 (meant to be 1.77) to a wall loss of exactly 0 — a fabricated
+    // pristine unit. That single point drags the Gumbel location down and
+    // inflates the scale, which inflates every extrapolated return level.
+    const { clean: cleanData, removed: removedOutliers, median: dataMedian, threshold: outlierThreshold } =
+      this.stripGrossOutliers(rawData);
+    if (removedOutliers.length > 0) {
+      console.warn(
+        `[EVA Run] Removed ${removedOutliers.length} gross outlier(s) ` +
+        `[${removedOutliers.map((v) => v.toFixed(3)).join(', ')}] exceeding ` +
+        `${outlierThreshold.toFixed(4)} (10x median ${dataMedian.toFixed(4)}) ` +
+        `from dataset ${dataset.name} before fitting.`,
+      );
+    }
+    if (cleanData.length < 5) {
+      throw new BadRequestException(
+        'After removing gross outliers the dataset has fewer than 5 valid observations',
+      );
+    }
+
     // Convert Remaining Thickness to Wall Loss if originalThickness is provided
-    let processedData = rawData;
+    let processedData = cleanData;
     if (dto.originalThickness !== undefined && dto.originalThickness !== null) {
       const origT = dto.originalThickness;
-      processedData = rawData.map(v => Math.max(0, origT - v));
+      processedData = cleanData.map(v => Math.max(0, origT - v));
     }
 
-    if (!dto.totalPopulation) {
-      dto.totalPopulation = rawData.length;
-    }
-
-    const isOriginal300 = rawData.length === 300 && 
-      Math.abs(rawData.reduce((a, b) => a + b, 0) / 300 - 2.17518566) < 0.0001;
-
-    if (isOriginal300) {
-      dto.serviceStartDate = dto.serviceStartDate || '2015-10-01';
-      dto.inspectionDate = dto.inspectionDate || '2017-10-01';
+    // N is supplied by the caller and must cover at least the units inspected.
+    // Defaulting N to rawData.length would silently set N = n, collapsing the
+    // extrapolation (N/n = 1) that EVA exists to perform.
+    if (dto.totalPopulation < cleanData.length) {
+      throw new BadRequestException(
+        `Total population N (${dto.totalPopulation}) cannot be smaller than the inspected ` +
+        `sample size n (${cleanData.length} valid observations in this dataset).`,
+      );
     }
 
     // ── 3. Create EVA Run Record ─────────────────────────────────────────────
@@ -71,7 +90,7 @@ export class EvaService {
       // ── 4. Call Python EVA Engine ──────────────────────────────────────────
       const engineUrl = this.config.get<string>('EVA_ENGINE_URL', 'http://localhost:8000');
       const returnPeriods = dto.returnPeriods ?? [2, 5, 10, 25, 50, 100];
-      if (dto.totalPopulation && !returnPeriods.includes(dto.totalPopulation)) {
+      if (!returnPeriods.includes(dto.totalPopulation)) {
         returnPeriods.push(dto.totalPopulation);
         returnPeriods.sort((a, b) => a - b);
       }
@@ -83,11 +102,6 @@ export class EvaService {
           distribution: dto.distribution,
           confidence_levels: [0.99, 0.95, 0.90, 0.80],
           return_periods: returnPeriods,
-          ...(isOriginal300 ? {
-            override_n: rawData.length,
-            override_mu: 0.1964777532779039,
-            override_beta: 0.07390893175803548
-          } : {}),
         }),
       );
 
@@ -104,7 +118,19 @@ export class EvaService {
           adPassed: result.goodness_of_fit.ad_passed,
           ksStatistic: result.goodness_of_fit.ks_statistic,
           ksPValue: result.goodness_of_fit.ks_p_value,
-          result: result, // Store the full engine result for charts
+          // Store the full engine result for charts, plus a provenance record of
+          // what was excluded from the fit so the UI can disclose it.
+          result: {
+            ...result,
+            data_quality: {
+              n_parsed: rawData.length,
+              n_used: cleanData.length,
+              n_removed: removedOutliers.length,
+              removed_values: removedOutliers,
+              outlier_threshold: outlierThreshold,
+              median: dataMedian,
+            },
+          },
           status: 'COMPLETED',
           completedAt: new Date(),
         } as any,
@@ -234,7 +260,19 @@ export class EvaService {
     }));
   }
 
-  async runADTest(datasetId: string, userId: string, totalPopulation?: number) {
+  /**
+   * Goodness-of-fit test for the dataset.
+   *
+   * This MUST preprocess exactly as runAnalysis() does. The AD test exists to
+   * validate the distributional assumption behind the return-level
+   * extrapolation, so it has to be run on the same random variable the EVA
+   * fits: maximum wall loss, x_i = max(0, t_orig - t_meas) (PVP2006 / ASTM
+   * E2283; eva.md 1.5). Testing the raw remaining-thickness readings instead
+   * tests a different variable -- a reflection of the wall-loss distribution,
+   * which for an asymmetric family like Gumbel is not the same distribution at
+   * all, and can even change which candidate ranks first.
+   */
+  async runADTest(datasetId: string, userId: string, originalThickness?: number) {
     // 1. Load Dataset
     const dataset = await this.prisma.dataset.findUnique({
       where: { id: datasetId },
@@ -250,13 +288,8 @@ export class EvaService {
     // 3. Clean data: remove gross outliers before sending to engine
     //    Any value > 10x the median is a data entry error (e.g. 177 instead of 1.77)
     //    and must be excluded before statistical fitting.
-    const sorted = [...rawData].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    const median = sorted.length % 2 !== 0
-      ? sorted[mid]
-      : (sorted[mid - 1] + sorted[mid]) / 2;
-    const outlierThreshold = median * 10.0;
-    const cleanData = rawData.filter(v => v <= outlierThreshold);
+    const { clean: cleanData, median, threshold: outlierThreshold } =
+      this.stripGrossOutliers(rawData);
     const nRemoved = rawData.length - cleanData.length;
     if (nRemoved > 0) {
       console.warn(
@@ -269,11 +302,11 @@ export class EvaService {
       throw new BadRequestException('After outlier removal, dataset has fewer than 5 valid observations');
     }
 
-    // 4. Extract engineering metadata from the dataset's -meta.json file
-    //    N_total is NOT auto-detected — it must be provided by the user.
+    // 4. Extract engineering metadata from the dataset's -meta.json file.
+    //    N (total population) plays no part in a goodness-of-fit test: no AD
+    //    statistic, critical value or p-value depends on it.
     let reportName: string | null = null;
     let nominalThickness: number | null = null;
-    const nTotal: number | null = totalPopulation || null;
 
     const metaPath = dataset.filePath.replace(/\.csv$/, '-meta.json');
     if (fs.existsSync(metaPath)) {
@@ -290,15 +323,23 @@ export class EvaService {
       }
     }
 
-    // 5. Call Python EVA Engine AD test endpoint with clean data
+    // 5. Convert to wall loss, exactly as runAnalysis() does, so the test
+    //    validates the variable the EVA actually fits.
+    const origT = originalThickness ?? nominalThickness ?? undefined;
+    const testedData =
+      origT !== undefined && origT !== null
+        ? cleanData.map((v) => Math.max(0, origT - v))
+        : cleanData;
+    const testedVariable = origT !== undefined && origT !== null ? 'wall_loss' : 'as_supplied';
+
+    // 6. Call Python EVA Engine AD test endpoint
     const engineUrl = this.config.get<string>('EVA_ENGINE_URL', 'http://localhost:8000');
     try {
       const { data: result } = await firstValueFrom(
         this.http.post(`${engineUrl}/ad-test`, {
-          data: cleanData,          // clean data — outliers already removed
+          data: testedData,
           significance_level: 0.05,
-          total_population: nTotal,
-          nominal_thickness: nominalThickness,
+          nominal_thickness: origT ?? null,
           report_name: reportName,
         }),
       );
@@ -306,15 +347,43 @@ export class EvaService {
         datasetId,
         datasetName: dataset.name,
         reportName: reportName || result.report_name,
-        nominalThickness: nominalThickness || result.nominal_thickness,
+        nominalThickness: origT ?? nominalThickness ?? result.nominal_thickness,
         nTested: result.n_observations,
-        nTotal: nTotal || result.n_total,
         nRemoved,
+        testedVariable,
+        originalThickness: origT ?? null,
         ...result,
       };
     } catch (err) {
       throw new BadRequestException(`AD Test Engine error: ${err.message}`);
     }
+  }
+
+  /**
+   * Remove gross data-entry errors before any statistical fitting.
+   *
+   * A reading more than 10x the sample median cannot be a real thickness for
+   * the same component — e.g. 177.0 where 1.77 was intended. Both the EVA run
+   * and the AD goodness-of-fit test use this one rule so they always fit the
+   * same set of observations.
+   */
+  private stripGrossOutliers(values: number[]): {
+    clean: number[];
+    removed: number[];
+    median: number;
+    threshold: number;
+  } {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median =
+      sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    const threshold = median * 10.0;
+    return {
+      clean: values.filter((v) => v <= threshold),
+      removed: values.filter((v) => v > threshold),
+      median,
+      threshold,
+    };
   }
 
   private parseSafeDate(d: any): Date | null {

@@ -3,23 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  FileText,
   Printer,
   Download,
   ChevronLeft,
   Activity,
-  ShieldCheck,
   AlertCircle,
-  Clock,
-  MapPin,
-  Tag
 } from 'lucide-react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Area, AreaChart, ScatterChart, Scatter, ReferenceLine, ComposedChart
-} from 'recharts';
 import { evaApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
 import { generateReportHtml, generateGumbelPlotSvg, generateCdfPlotSvg, generateTubeSheetMapSvg, generateInspectionSummaryTable, getReportTubes } from '@/components/StaticReportPrinter';
 
 export default function EngineeringReport() {
@@ -65,14 +55,30 @@ export default function EngineeringReport() {
     }
   };
 
-  const result = run.result;
-  const plotData = result?.plot_data;
-  const returnLevelCurveData = plotData?.return_level_plot?.curve_periods?.map((p: number, i: number) => ({
-    period: p,
-    value: plotData.return_level_plot.curve_values[i],
-    ci_lower: plotData.return_level_plot.curve_ci_lower[i],
-    ci_upper: plotData.return_level_plot.curve_ci_upper[i],
-  })) || [];
+  const handleDownloadPdf = () => {
+    // Generate the same static HTML but inject a print-then-close script
+    let html = generateReportHtml(run);
+    // Replace the existing onload script to immediately print (which shows Save as PDF dialog)
+    html = html.replace(
+      `window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 500);
+    };`,
+      `window.onload = function() {
+      setTimeout(function() {
+        window.print();
+        window.addEventListener('afterprint', function() { window.close(); });
+      }, 500);
+    };`
+    );
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const pdfWindow = window.open(url, '_blank');
+    if (pdfWindow) {
+      pdfWindow.focus();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 py-10 px-4 print:bg-white print:p-0">
@@ -93,7 +99,10 @@ export default function EngineeringReport() {
             <Printer className="w-4 h-4" />
             Print Report
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm">
+          <button
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
+          >
             <Download className="w-4 h-4" />
             Download PDF
           </button>
@@ -239,40 +248,24 @@ export default function EngineeringReport() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-900 text-white text-[10px] font-bold uppercase tracking-widest">
-                  <th className="p-4 text-left">Risk Category</th>
+                  <th className="p-4 text-left">Inspection Effectiveness</th>
                   <th className="p-4">Confidence</th>
                   <th className="p-4">Max Wall Loss</th>
                   <th className="p-4">Rem. Thickness</th>
-                  <th className="p-4">Estimated EOL</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {[
-                  { cat: 'Category A (Extreme Risk)', level: '99%', key: '99' },
-                  { cat: 'Category B (High Risk)', level: '95%', key: '95' },
-                  { cat: 'Category C (Medium Risk)', level: '90%', key: '90' },
-                  { cat: 'Category D (Low Risk)', level: '80%', key: '80' },
+                  { cat: 'Inspection Effectiveness A', level: '99%', key: '99' },
+                  { cat: 'Inspection Effectiveness B', level: '95%', key: '95' },
+                  { cat: 'Inspection Effectiveness C', level: '90%', key: '90' },
+                  { cat: 'Inspection Effectiveness D', level: '80%', key: '80' },
                 ].map((row, i) => {
                   const rl = run.returnLevels?.find((r: any) => r.returnPeriod === run.totalPopulation) || run.returnLevels?.[run.returnLevels.length - 1];
                   if (!rl) return null;
                   const ciEntry = rl.allConfidences?.[row.key];
                   const wallLoss = ciEntry?.wallLoss ?? ciEntry?.upper ?? rl.predictedValue;
                   const remThickness = ciEntry?.remainingThickness ?? ((run.originalThickness || 0) - wallLoss);
-                  const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
-                  let eolStr = 'N/A';
-                  if (ciEntry?.eolDate) {
-                    eolStr = new Date(ciEntry.eolDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-                  } else if (corrosionRate > 0 && run.minimumRequiredThickness !== undefined && run.minimumRequiredThickness !== null) {
-                    let eol: Date;
-                    if (run.serviceStartDate) {
-                      const totalLifeDays = ((run.originalThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                      eol = new Date(new Date(run.serviceStartDate).getTime() + totalLifeDays * 24 * 60 * 60 * 1000);
-                    } else {
-                      const remainingLifeDays = ((remThickness - run.minimumRequiredThickness) / corrosionRate) * 365.25;
-                      eol = new Date(new Date(run.inspectionDate).getTime() + remainingLifeDays * 24 * 60 * 60 * 1000);
-                    }
-                    eolStr = eol.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-                  }
 
                   return (
                     <tr key={i} className="text-xs">
@@ -280,7 +273,6 @@ export default function EngineeringReport() {
                       <td className="p-4 text-center font-bold text-gray-500">{row.level}</td>
                       <td className="p-4 text-center font-mono">{wallLoss.toFixed(4)} mm</td>
                       <td className="p-4 text-center font-mono font-bold text-gray-900">{remThickness.toFixed(3)} mm</td>
-                      <td className="p-4 text-center font-black text-blue-600">{eolStr}</td>
                     </tr>
                   );
                 })}
@@ -289,63 +281,10 @@ export default function EngineeringReport() {
           </div>
         </section>
 
-        {/* Asset Life & EOL Forecast (Excel Format Table) */}
-        <section className="mb-12 page-break-inside-avoid">
-          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">3.1 Asset Life & EOL Forecast (Excel Format)</h4>
-          <div className="overflow-hidden border border-gray-200 rounded-lg">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-900 text-white text-[10px] font-bold uppercase tracking-widest">
-                  <th className="p-4 text-left">RBI Effectiveness</th>
-                  <th className="p-4 text-center">Confidence Interval</th>
-                  <th className="p-4 text-center">Minimum Remaining Thickness</th>
-                  <th className="p-4 text-center">Corrosion Rate</th>
-                  <th className="p-4 text-center">End of Life</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 font-mono text-xs font-bold text-blue-600">
-                {[
-                  { label: 'A', confidence: '99%', levelKey: '99' },
-                  { label: 'B', confidence: '95%', levelKey: '95' },
-                  { label: 'C', confidence: '90%', levelKey: '90' },
-                  { label: 'D', confidence: '80%', levelKey: '80' }
-                ].map((rbi, idx) => {
-                  const rl = run.returnLevels?.find((r: any) => r.returnPeriod === run.totalPopulation) || run.returnLevels?.[run.returnLevels.length - 1];
-                  if (!rl) return null;
-
-                  const ciEntry = rl.allConfidences?.[rbi.levelKey];
-                  const wallLoss = ciEntry?.wallLoss ?? ciEntry?.upper ?? rl.predictedValue;
-                  const remThickness = ciEntry?.remainingThickness ?? ((run.originalThickness || 0) - wallLoss);
-                  const corrosionRate = ciEntry?.corrosionRate ?? (rl.corrosionRate || 0);
-
-                  let eolDateStr = 'N/A';
-                  if (ciEntry?.eolDate) {
-                    const eolD = new Date(ciEntry.eolDate);
-                    const mm = String(eolD.getMonth() + 1).padStart(2, '0');
-                    const dd = String(eolD.getDate()).padStart(2, '0');
-                    const yy = String(eolD.getFullYear()).slice(-2);
-                    eolDateStr = `${mm}-${dd}-${yy}`;
-                  }
-
-                  return (
-                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-4 text-gray-900 font-sans font-bold text-left">{rbi.label}</td>
-                      <td className="p-4 text-gray-500 font-sans font-bold text-center">{rbi.confidence}</td>
-                      <td className="p-4 text-center font-bold">{remThickness.toFixed(3)} mm</td>
-                      <td className="p-4 text-center font-bold">{corrosionRate.toFixed(3)} mmpy</td>
-                      <td className="p-4 text-center font-bold">{eolDateStr}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Section 3.2: Statistical Probability Plots */}
+        {/* Section 3.1: Statistical Probability Plots */}
         <section className="mb-12 page-break-inside-avoid">
           <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-6">
-            3.2 Statistical Integrity & Probability Plots
+            3.1 Statistical Integrity & Probability Plots
           </h3>
           <p className="text-sm text-gray-600 leading-relaxed mb-6">
             The Gumbel Reduced Variate (Q-Q) and Cumulative Probability plots below visually demonstrate the alignment of observed wall loss measurements with the fitted Gumbel extreme value distribution.
@@ -388,7 +327,7 @@ export default function EngineeringReport() {
                   </li>
                   <li className="text-[11px] text-gray-600 flex gap-2">
                     <span className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-1 shrink-0" />
-                    <span>Update Asset Integrity Management (AIM) database with the new forecast End-of-Life (EOL) dates.</span>
+                    <span>Update the Asset Integrity Management (AIM) database with the forecast minimum remaining thickness per RBI effectiveness level.</span>
                   </li>
                 </ul>
               </div>
@@ -449,89 +388,7 @@ export default function EngineeringReport() {
           </div>
         </section>
 
-        {/* Standard Tabular Data (PVP2006 / ASTM E2283) */}
-        {plotData?.probability_plot?.tabular_data && (
-          <section className="mb-12 page-break-before-always space-y-8">
-            <div>
-              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-l-4 border-blue-600 pl-3 mb-4">
-                6.0 Standard Tabular Data (PVP2006 / ASTM E2283)
-              </h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                The tables below list the ranked inspection observations, cumulative probabilities, Gumbel reduced variates, ln(PDF), best-fit wall loss estimations, and their respective confidence intervals.
-              </p>
-            </div>
 
-            {/* Table 6.1: Observations and Probability Plot Data */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                Table 6.1: Observations & Probability Plot Data
-              </h4>
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                <table className="w-full border-collapse text-[10px]">
-                  <thead>
-                    <tr className="bg-gray-900 text-white font-bold uppercase tracking-wider text-left text-[8px]">
-                      <th className="p-2 w-16">Rank (i)</th>
-                      <th className="p-2">Obs. Wall Loss</th>
-                      <th className="p-2">Prob. P_i</th>
-                      <th className="p-2">Red. Var. y_i</th>
-                      <th className="p-2">ln(PDF)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 font-mono text-gray-700">
-                    {plotData.probability_plot.tabular_data.map((row: any) => (
-                      <tr key={row.rank} className="hover:bg-gray-50/50">
-                        <td className="p-2 font-sans font-bold text-gray-900">{row.rank}</td>
-                        <td className="p-2 font-bold text-gray-900">{row.observed.toFixed(4)} mm</td>
-                        <td className="p-2 text-gray-500">{row.probability.toFixed(4)}</td>
-                        <td className="p-2 text-gray-500">{row.reduced_variate.toFixed(4)}</td>
-                        <td className="p-2 text-gray-500">{row.ln_pdf.toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Table 6.2: Extreme Value Fit & Confidence Intervals */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                Table 6.2: Extreme Value Fit & Confidence Intervals
-              </h4>
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                <table className="w-full border-collapse text-[10px]">
-                  <thead>
-                    <tr className="bg-gray-900 text-white font-bold uppercase tracking-wider text-left text-[8px]">
-                      <th className="p-2 w-16">Rank (i)</th>
-                      <th className="p-2">Fit Loss</th>
-                      <th className="p-2 bg-blue-800">Max Wall Loss (mm)</th>
-                      <th className="p-2 bg-blue-800">Min Rem. Thickness (mm)</th>
-                      <th className="p-2">Std. Error</th>
-                      <th className="p-2">95% CI (L - U)</th>
-                      <th className="p-2">99% CI (L - U)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 font-mono text-gray-700">
-                    {plotData.probability_plot.tabular_data.map((row: any) => (
-                      <tr key={row.rank} className="hover:bg-gray-50/50">
-                        <td className="p-2 font-sans font-bold text-gray-900">{row.rank}</td>
-                        <td className="p-2 text-blue-600 font-bold">{row.best_fit.toFixed(4)} mm</td>
-                        <td className="p-2 font-bold text-blue-700 bg-blue-50">{row.best_fit.toFixed(4)}</td>
-                        <td className="p-2 font-bold text-emerald-700 bg-emerald-50">
-                          {run.originalThickness
-                            ? (run.originalThickness - row.best_fit).toFixed(4)
-                            : 'N/A'}
-                        </td>
-                        <td className="p-2 text-gray-500">{row.se.toFixed(4)} mm</td>
-                        <td className="p-2 text-gray-600">{row.ci_95_lower.toFixed(4)} - {row.ci_95_upper.toFixed(4)}</td>
-                        <td className="p-2 text-gray-600">{row.ci_99_lower.toFixed(4)} - {row.ci_99_upper.toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Section 7.0: Summary of Inspection Results */}
         {getReportTubes(run).length > 0 && (

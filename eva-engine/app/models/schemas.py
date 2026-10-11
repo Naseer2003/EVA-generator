@@ -72,6 +72,9 @@ class EVAResponse(BaseModel):
 
 class ADTestRequest(BaseModel):
     """Request for multi-distribution Anderson-Darling GOF testing."""
+    # Maximum wall loss per inspected unit — the SAME variable the EVA fits.
+    # Not remaining thickness: the goodness-of-fit test has to validate the
+    # distribution that the return-level extrapolation actually uses.
     data: List[float]
     significance_level: float = 0.05
     # Engineering metadata (optional — passed through from backend)
@@ -85,8 +88,17 @@ class DistributionResult(BaseModel):
     distribution: str
     ad_statistic: float
     ad_modified: Optional[float] = None
-    critical_value: float
+    # None when the distribution could not be tested at all.
+    critical_value: Optional[float] = None
+    # True p-value. NEVER floored: a rejected fit can legitimately be 1e-7 or
+    # smaller, and the reference papers quote such values (START 2003-5 quotes
+    # OSL = 6e-07 for its worked counterexample).
     p_value: Optional[float] = None
+    # True when p_value should be read as "below this", not as a point estimate:
+    # a Monte Carlo run with zero exceedances, or an approximation evaluated
+    # outside its calibrated range.
+    p_value_is_bound: Optional[bool] = None
+    p_value_method: Optional[str] = None
     passed: bool
     parameters: Dict[str, Any] = {}
     engineering_parameters: Optional[Dict[str, Any]] = None   # human-readable engineering params
@@ -110,4 +122,7 @@ class ADTestResponse(BaseModel):
     significance_level: float
     is_discretized: Optional[bool] = False
     n_unique: Optional[int] = None
+    tie_fraction: Optional[float] = None       # 1 - n_unique/n; ~0 continuous, ~1 binned
+    resolution: Optional[float] = None         # smallest step between distinct readings (mm)
+    gof_applicable: Optional[bool] = True      # False when ties make a pass unreachable
     discretization_note: Optional[str] = None

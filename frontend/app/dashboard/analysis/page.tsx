@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Play,
   Settings,
   Database,
   BarChart3,
@@ -13,17 +12,11 @@ import {
   Zap,
   Info,
   ChevronRight,
-  Plus,
-  Table,
   FileSpreadsheet,
   ClipboardPaste,
-  X,
   FlaskConical,
   ShieldCheck,
   Award,
-  Sparkles,
-  TrendingUp,
-  RefreshCw,
 } from 'lucide-react';
 import { datasetsApi, evaApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -33,6 +26,7 @@ interface ADResult {
   ad_statistic: number;
   critical_value: number;
   p_value: number | null;
+  p_value_is_bound?: boolean | null;
   passed: boolean;
   rank: number;
   parameters?: Record<string, any>;
@@ -46,9 +40,11 @@ export default function AnalysisPage() {
 
   // Form State
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
-  const [selectedDistribution, setSelectedDistribution] = useState<string>('Gumbel');
-  const [method, setMethod] = useState('mle');
-  const [nBootstrap, setNBootstrap] = useState(1000);
+  // Fixed by PVP2006 / ASTM E2283 for mechanical integrity, and the engine
+  // fits Gumbel regardless of what is sent — this is not a user choice.
+  const DISTRIBUTION = 'Gumbel';
+  const [method] = useState('mle');
+  const [nBootstrap] = useState(1000);
   const [totalPopulation, setTotalPopulation] = useState<number | ''>('');
 
   // Engineering Parameters
@@ -64,64 +60,37 @@ export default function AnalysisPage() {
   const [adTestResults, setAdTestResults] = useState<ADResult[]>([]);
   const [recommendedDist, setRecommendedDist] = useState<string | null>(null);
   const [nTested, setNTested] = useState<number | null>(null);
+  // Ties make a continuous goodness-of-fit test inapplicable — see adTestMeta.
+  const [adTestMeta, setAdTestMeta] = useState<any>(null);
   const [adTestError, setAdTestError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchDatasets() {
-      try {
-        const res = await datasetsApi.getAll();
-        setDatasets(res.data);
-        if (res.data.length > 0) {
-          const firstDb = res.data[0];
-          setSelectedDataset(firstDb.id);
-          setTotalPopulation(firstDb.rowCount || '');
-          // NOTE: Do NOT auto-run AD test — user must click "Run AD Test" button
-        }
-      } catch (err) {
-        console.error('Failed to fetch datasets', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchDatasets();
+  // ── Population sizing (PVP2006 / ASTM E2283) ────────────────────────────────
+  // n = inspected sample size — comes from the selected dataset's row count.
+  // N = total population (every unit in the bundle / circuit) — user-supplied.
+  // EVA extrapolates the sample fit from n out to N, so N must be >= n;
+  // N == n is a 100% inspection and performs no extrapolation at all.
+  const nInspected: number | null =
+    datasets.find((d) => d.id === selectedDataset)?.rowCount ?? null;
 
-    const handlePaste = (e: ClipboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
-      const text = e.clipboardData?.getData('text');
-      if (text) parseSmartPaste(text);
-    };
+  const populationError: string | null =
+    typeof totalPopulation !== 'number' || !Number.isFinite(totalPopulation)
+      ? 'Enter the total population N.'
+      : totalPopulation < 2
+        ? 'N must be at least 2.'
+        : nInspected !== null && totalPopulation < nInspected
+          ? `N cannot be smaller than n (${nInspected} inspected units).`
+          : null;
 
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, []);
+  const populationWarning: string | null =
+    !populationError && nInspected !== null && totalPopulation === nInspected
+      ? 'N equals n — this run fits the full population rather than extrapolating from a sample.'
+      : null;
 
-  // Explicitly run AD test ONLY when user clicks the button
-  const runADTest = async (datasetId?: string, population?: number) => {
-    const targetDatasetId = datasetId || selectedDataset;
-    if (!targetDatasetId) return;
-    setIsAdTesting(true);
-    setAdTestError(null);
-    try {
-      const targetPop = population !== undefined ? population : (typeof totalPopulation === 'number' ? totalPopulation : undefined);
-      const res = await evaApi.runADTest(targetDatasetId, targetPop ? { totalPopulation: targetPop } : undefined);
-      const results = res.data?.results || [];
-      const recommended = res.data?.recommended || 'Gumbel';
-      const nObs = res.data?.nTested ?? res.data?.n_observations ?? null;
-      setAdTestResults(results);
-      setRecommendedDist(recommended);
-      setNTested(nObs);
-      setHasRunAdTest(true);
-      // Auto-select recommended distribution in Step 3 dropdown
-      if (recommended) {
-        setSelectedDistribution(recommended);
-      }
-    } catch (err: any) {
-      console.error('AD test failed', err);
-      setAdTestError('Failed to run AD test on selected dataset.');
-    } finally {
-      setIsAdTesting(false);
-    }
-  };
+  // An untouched N is not an error yet — only a value the user has actually
+  // entered (or an attempted run) should surface in red.
+  const populationUnset = totalPopulation === '';
+  const canRun = Boolean(selectedDataset) && !populationError;
+  const blockedReason = !selectedDataset ? 'Select a dataset to continue' : populationError;
 
   const parseSmartPaste = (text: string) => {
     const lines = text.split('\n');
@@ -172,26 +141,85 @@ export default function AnalysisPage() {
     }
   };
 
-  const handleSelectDataset = (id: string, rowCount?: number) => {
+  useEffect(() => {
+    async function fetchDatasets() {
+      try {
+        const res = await datasetsApi.getAll();
+        setDatasets(res.data);
+        if (res.data.length > 0) {
+          const firstDb = res.data[0];
+          setSelectedDataset(firstDb.id);
+          // N is NOT derived from the row count: the row count is the inspected
+          // sample size n. N (total population) must be entered explicitly.
+          // NOTE: Do NOT auto-run AD test — user must click "Run AD Test" button
+        }
+      } catch (err) {
+        console.error('Failed to fetch datasets', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchDatasets();
+
+    const handlePaste = (e: ClipboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
+      const text = e.clipboardData?.getData('text');
+      if (text) parseSmartPaste(text);
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, []);
+
+  // Explicitly run AD test ONLY when user clicks the button
+  const runADTest = async (datasetId?: string) => {
+    const targetDatasetId = datasetId || selectedDataset;
+    if (!targetDatasetId) return;
+    setIsAdTesting(true);
+    setAdTestError(null);
+    try {
+      // N is not sent: no AD statistic, critical value or p-value depends on it.
+      // originalThickness IS sent — the test must run on wall loss, the same
+      // variable the EVA fits, not on the raw thickness readings.
+      const res = await evaApi.runADTest(targetDatasetId, { originalThickness });
+      const results = res.data?.results || [];
+      const recommended = res.data?.recommended || 'Gumbel';
+      const nObs = res.data?.nTested ?? res.data?.n_observations ?? null;
+      setAdTestResults(results);
+      setRecommendedDist(recommended);
+      setNTested(nObs);
+      setAdTestMeta(res.data ?? null);
+      setHasRunAdTest(true);
+    } catch (err: any) {
+      console.error('AD test failed', err);
+      setAdTestError('Failed to run AD test on selected dataset.');
+    } finally {
+      setIsAdTesting(false);
+    }
+  };
+
+
+  const handleSelectDataset = (id: string) => {
     setSelectedDataset(id);
-    setTotalPopulation(rowCount || '');
+    // N is an equipment property, not a file property — leave the user's value intact.
     // Reset AD test results when dataset is changed — wait for user to click button
     setAdTestResults([]);
+    setAdTestMeta(null);
     setRecommendedDist(null);
     setNTested(null);
     setHasRunAdTest(false);
   };
 
   const handleRun = async () => {
-    if (!selectedDataset) return;
+    if (!selectedDataset || populationError) return;
     setIsSubmitting(true);
     try {
       const res = await evaApi.run({
         datasetId: selectedDataset,
-        distribution: selectedDistribution,
+        distribution: DISTRIBUTION,
         method,
         nBootstrap,
-        totalPopulation: totalPopulation || undefined,
+        totalPopulation: totalPopulation as number,
         originalThickness,
         serviceStartDate,
         inspectionDate,
@@ -277,7 +305,62 @@ export default function AnalysisPage() {
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm focus:border-teal-500 outline-none text-gray-900"
                 />
               </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                  Total Population N <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number" min="2" step="1" value={totalPopulation}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setTotalPopulation(Number.isFinite(v) ? v : '');
+                  }}
+                  placeholder="e.g. 1140"
+                  className={cn(
+                    "w-full bg-gray-50 border rounded-md px-3 py-2 text-sm outline-none text-gray-900 font-mono",
+                    populationError ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-teal-500"
+                  )}
+                />
+                <p className="text-[9px] text-gray-400 uppercase font-bold tracking-tight">All units in the bundle / circuit</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Inspected Sample n</label>
+                <div className="w-full bg-gray-100/70 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-500 font-mono flex items-center justify-between">
+                  <span>{nInspected ?? '—'}</span>
+                  {nInspected !== null && typeof totalPopulation === 'number' && totalPopulation >= nInspected && (
+                    <span className="text-[10px] font-bold text-teal-600 tracking-tight">
+                      n/N = {((nInspected / totalPopulation) * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-[9px] text-gray-400 uppercase font-bold tracking-tight">From selected dataset — read only</p>
+              </div>
             </div>
+
+            {populationError && (
+              <div className={cn(
+                "flex items-start gap-2.5 p-3 border rounded-md",
+                populationUnset ? "bg-gray-50 border-gray-200" : "bg-red-50 border-red-200"
+              )}>
+                {populationUnset
+                  ? <Info className="w-4 h-4 text-gray-400 shrink-0 mt-px" />
+                  : <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-px" />}
+                <p className={cn(
+                  "text-[11px] font-medium leading-relaxed",
+                  populationUnset ? "text-gray-600" : "text-red-700"
+                )}>
+                  {populationUnset
+                    ? 'Enter the total population N — every unit in the bundle or circuit — to enable the analytical run.'
+                    : populationError}
+                </p>
+              </div>
+            )}
+            {populationWarning && (
+              <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-px" />
+                <p className="text-[11px] text-amber-800 font-medium leading-relaxed">{populationWarning}</p>
+              </div>
+            )}
 
             <div className="p-3 bg-teal-50/60 border border-teal-100 rounded-md">
               <p className="text-[10px] text-teal-700 uppercase tracking-wider font-bold mb-0.5">Auto-Conversion Active</p>
@@ -308,7 +391,7 @@ export default function AnalysisPage() {
                 datasets.map((d) => (
                   <button
                     key={d.id}
-                    onClick={() => handleSelectDataset(d.id, d.rowCount)}
+                    onClick={() => handleSelectDataset(d.id)}
                     className={cn(
                       "p-3 rounded-lg border text-left transition-all cursor-pointer",
                       selectedDataset === d.id
@@ -346,12 +429,12 @@ export default function AnalysisPage() {
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">Step 2: Distribution Goodness-of-Fit</h2>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">ANDERSON-DARLING TEST — 5 DISTRIBUTIONS</p>
+                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">Step 2: Validate the Gumbel Fit</h2>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">ANDERSON-DARLING TEST — GUMBEL, WITH FOUR DIAGNOSTIC COMPARATORS</p>
                 </div>
               </div>
               <button
-                onClick={() => selectedDataset && runADTest(selectedDataset, totalPopulation || undefined)}
+                onClick={() => selectedDataset && runADTest(selectedDataset)}
                 disabled={!selectedDataset || isAdTesting}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors disabled:opacity-50 shrink-0 cursor-pointer shadow-sm"
               >
@@ -385,8 +468,19 @@ export default function AnalysisPage() {
                     <Award className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">RECOMMENDED DISTRIBUTION</p>
-                    <p className="text-xl font-black text-gray-900 tracking-tight">{recommendedDist || 'Gumbel'}</p>
+                    <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">GUMBEL FIT — PVP2006 / ASTM E2283</p>
+                    <p className="text-xl font-black text-gray-900 tracking-tight">
+                      {(() => {
+                        const g = adTestResults.find((r) => r.distribution === 'Gumbel');
+                        if (!g) return 'Not evaluated';
+                        return g.passed ? 'Validated' : 'Not validated';
+                      })()}
+                    </p>
+                    {recommendedDist && recommendedDist !== 'Gumbel' && (
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        Closest comparator: {recommendedDist} — diagnostic only, the run still uses Gumbel
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -446,7 +540,9 @@ export default function AnalysisPage() {
                     <tbody className="divide-y divide-gray-100 text-xs">
                       {adTestResults.map((r, idx) => {
                         const isBest = r.rank === 1 || r.distribution === recommendedDist;
-                        const isSelected = selectedDistribution.toLowerCase() === r.distribution.toLowerCase() || (selectedDistribution === 'Gumbel' && r.distribution.toLowerCase().includes('gumbel'));
+                        // Gumbel is the model the EVA actually uses; highlight it
+                        // rather than whichever comparator happens to rank first.
+                        const isSelected = r.distribution === 'Gumbel';
                         const distColorMap: Record<string, string> = {
                           Weibull: '#d97706',
                           Exponential: '#e11d48',
@@ -459,9 +555,8 @@ export default function AnalysisPage() {
                         return (
                           <tr
                             key={r.distribution}
-                            onClick={() => setSelectedDistribution(r.distribution)}
                             className={cn(
-                              "hover:bg-gray-50/80 transition-colors cursor-pointer",
+                              "transition-colors",
                               isSelected && "bg-teal-50/60 font-semibold"
                             )}
                           >
@@ -477,9 +572,14 @@ export default function AnalysisPage() {
                               <div className="flex items-center gap-2">
                                 <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: dotColor }} />
                                 <span className="font-bold text-gray-900">{r.distribution}</span>
-                                {isBest && (
+                                {r.distribution === 'Gumbel' && (
                                   <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-100 text-teal-800 border border-teal-200">
-                                    BEST
+                                    USED FOR EVA
+                                  </span>
+                                )}
+                                {isBest && r.distribution !== 'Gumbel' && (
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-200">
+                                    LOWEST A²
                                   </span>
                                 )}
                               </div>
@@ -496,7 +596,9 @@ export default function AnalysisPage() {
                                   "font-mono font-bold",
                                   r.p_value >= 0.05 ? "text-emerald-600" : "text-red-600"
                                 )}>
-                                  {r.p_value.toFixed(4)}
+                                  {r.p_value >= 1e-4
+                              ? (r.p_value_is_bound ? '< ' : '') + r.p_value.toFixed(4)
+                              : (r.p_value_is_bound ? '< ' : '') + r.p_value.toExponential(2)}
                                 </span>
                               ) : '—'}
                             </td>
@@ -523,11 +625,44 @@ export default function AnalysisPage() {
                   </table>
                 </div>
                 <p className="text-[10px] text-gray-400 font-medium pt-1">
-                  {nTested ? `n = ${nTested} observations` : 'Sample observations'} · α = 0.05 · Ranked by lowest AD statistic among passing distributions
+                  {nTested ? `n = ${nTested} observations` : 'Sample observations'} · α = 0.05 ·{' '}
+                  {adTestResults.some((r) => r.passed)
+                    ? 'Ranked by lowest AD statistic among passing distributions'
+                    : 'No candidate passed — ranked by lowest AD statistic (relative fit only)'}
+                  {adTestMeta?.testedVariable === 'wall_loss' && ' · tested on wall loss'}
                 </p>
               </div>
             )}
           </section>
+
+          {/* Why nothing passed: measurement resolution, not distributional mismatch */}
+          {hasRunAdTest && adTestMeta?.is_discretized && (
+            <div className="p-5 bg-amber-50 border-2 border-amber-300 rounded-xl flex items-start gap-3 text-xs text-amber-900 shadow-sm">
+              <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="leading-relaxed space-y-2">
+                <span className="font-bold text-amber-950 text-sm block">
+                  Goodness-of-fit not applicable at this measurement resolution
+                </span>
+                <p>{adTestMeta.discretization_note}</p>
+                <div className="flex flex-wrap gap-x-6 gap-y-1 pt-1 font-mono text-[11px]">
+                  <span>distinct values: <strong>{adTestMeta.n_unique}</strong> / {nTested}</span>
+                  {adTestMeta.tie_fraction != null && (
+                    <span>ties: <strong>{(adTestMeta.tie_fraction * 100).toFixed(1)}%</strong></span>
+                  )}
+                  {adTestMeta.resolution != null && (
+                    <span>resolution: <strong>{adTestMeta.resolution.toFixed(4)} mm</strong></span>
+                  )}
+                </div>
+                <p className="pt-1 border-t border-amber-200">
+                  Every candidate failing here does <span className="font-bold text-amber-950">not</span> mean none
+                  of them describes your corrosion. A sample from a perfect Gumbel scores A² = 0.28 (pass) at full
+                  precision but A² = 60.3 once quantised to 10% bands. Treat{' '}
+                  <span className="font-bold text-amber-950">{recommendedDist}</span> as the closest of the five and
+                  proceed — Gumbel remains the PVP2006 default for mechanical integrity regardless.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Step 3: Analytical Engine */}
           <section className="bg-white border border-gray-200 p-6 rounded-xl space-y-6 shadow-sm">
@@ -542,22 +677,18 @@ export default function AnalysisPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Statistical Distribution Dropdown */}
+              {/* Distribution — fixed by the standard, not selectable */}
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Statistical Distribution</label>
-                <select
-                  value={selectedDistribution}
-                  onChange={(e) => setSelectedDistribution(e.target.value)}
-                  className="w-full h-11 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 focus:border-teal-500 focus:bg-white outline-none cursor-pointer"
-                >
-                  <option value="Gumbel">Gumbel (EVT I) — Mandatory for PVP2006 / Mechanical Integrity</option>
-                  <option value="Weibull">Weibull — Degradation &amp; Wear-out</option>
-                  <option value="Lognormal">Lognormal — Multiplicative Corrosion</option>
-                  <option value="Normal">Normal (Gaussian) — Symmetrical Bell Curve</option>
-                  <option value="Exponential">Exponential — Constant Failure Rate</option>
-                </select>
+                <div className="p-2.5 bg-teal-50 border border-teal-200 rounded-lg flex items-center justify-between h-11">
+                  <div>
+                    <p className="text-xs font-bold text-teal-900">Gumbel — Extreme Value Type I</p>
+                    <p className="text-[9px] text-teal-600 font-semibold uppercase">Mandated by PVP2006 / ASTM E2283</p>
+                  </div>
+                  <ShieldCheck className="w-4 h-4 text-teal-600" />
+                </div>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-tight">
-                  {recommendedDist ? `★ Recommended by AD test: ${recommendedDist}` : 'Select target distribution model for EVA calculations'}
+                  Not a choice — for mechanical integrity the distribution is fixed. Step 2 validates it.
                 </p>
               </div>
 
@@ -575,17 +706,20 @@ export default function AnalysisPage() {
             </div>
 
             <div className="pt-6 border-t border-gray-100">
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Population (N)</label>
-                <input
-                  type="number"
-                  value={totalPopulation}
-                  onChange={(e) => setTotalPopulation(parseInt(e.target.value) || 0)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 text-gray-900 font-mono"
-                  placeholder="Auto-filled from dataset row count"
-                />
-                <p className="text-[9px] text-gray-400 mt-1 uppercase font-bold tracking-tight">Total tubes in the bundle — auto-filled from selected dataset. All 4 confidence intervals (80 / 90 / 95 / 99%) are always computed.</p>
+              <div className="flex flex-wrap items-center gap-x-8 gap-y-2 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-md">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Extrapolating</span>
+                  <span className="text-sm font-mono font-bold text-gray-900">n = {nInspected ?? '—'}</span>
+                  <ChevronRight className="w-3 h-3 text-gray-400" />
+                  <span className="text-sm font-mono font-bold text-teal-600">
+                    N = {typeof totalPopulation === 'number' ? totalPopulation.toLocaleString() : '—'}
+                  </span>
+                </div>
+                <span className="text-[9px] text-gray-400 uppercase font-bold tracking-tight">
+                  Set N in Engineering Parameters above
+                </span>
               </div>
+              <p className="text-[9px] text-gray-400 mt-2 uppercase font-bold tracking-tight">All 4 confidence intervals (80 / 90 / 95 / 99%) are always computed.</p>
             </div>
           </section>
         </div>
@@ -601,10 +735,11 @@ export default function AnalysisPage() {
             <div className="space-y-4 mb-8">
               {[
                 { label: 'Dataset', value: datasets.find(d => d.id === selectedDataset)?.name || 'None', color: 'gray' },
-                { label: 'Distribution', value: selectedDistribution + (selectedDistribution === recommendedDist ? ' (Best)' : ''), color: 'teal' },
+                { label: 'Distribution', value: 'Gumbel (EVT I)', color: 'teal' },
                 { label: 'Calculation', value: 'Analytical', color: 'emerald' },
                 { label: 'Confidence Levels', value: '80 / 90 / 95 / 99%', color: 'teal' },
-                { label: 'Target Pop.', value: totalPopulation ? Number(totalPopulation).toLocaleString() : '—', color: 'gray' },
+                { label: 'Inspected (n)', value: nInspected !== null ? nInspected.toLocaleString() : '—', color: 'gray' },
+                { label: 'Population (N)', value: typeof totalPopulation === 'number' ? totalPopulation.toLocaleString() : '—', color: populationError ? 'gray' : 'teal' },
               ].map((item, i) => (
                 <div key={i} className="flex justify-between items-start text-[11px]">
                   <span className="text-gray-400 font-bold uppercase tracking-tighter">{item.label}</span>
@@ -615,9 +750,15 @@ export default function AnalysisPage() {
               ))}
             </div>
 
+            {!canRun && blockedReason && (
+              <p className="text-[10px] text-red-600 font-bold uppercase tracking-tight mb-3 text-center">
+                {blockedReason}
+              </p>
+            )}
+
             <button
               onClick={handleRun}
-              disabled={!selectedDataset || isSubmitting}
+              disabled={!canRun || isSubmitting}
               className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 rounded-lg transition-all shadow-lg shadow-teal-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] cursor-pointer"
             >
               {isSubmitting ? (

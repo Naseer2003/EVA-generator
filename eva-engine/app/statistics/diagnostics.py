@@ -153,7 +153,10 @@ def _monte_carlo_p_value(
         if ad_sim >= ad_observed:
             count_exceed += 1
 
-    return count_exceed / n_simulations
+    # (b+1)/(m+1), not b/m: the naive ratio returns exactly 0 when no simulated
+    # statistic exceeds the observed one, and a p-value of 0 is impossible.
+    # North, Curtis & Sham (2002), Am J Hum Genet 71:439.
+    return (count_exceed + 1) / (n_simulations + 1)
 
 
 def _generate_interpretation(
@@ -181,20 +184,22 @@ def _generate_interpretation(
         )
 
     if p_value is not None:
+        # '%.3f' would print 1.9e-04 as '0.000'; keep the magnitude visible.
+        shown = f"{p_value:.3f}" if p_value >= 1e-3 else f"{p_value:.2e}"
         if p_value >= 0.15:
             parts.append(
-                f"The p-value ({p_value:.3f}) indicates strong evidence "
+                f"The p-value ({shown}) indicates strong evidence "
                 f"supporting the Gumbel fit."
             )
         elif p_value >= 0.05:
             parts.append(
-                f"The p-value ({p_value:.3f}) indicates the Gumbel fit is "
+                f"The p-value ({shown}) indicates the Gumbel fit is "
                 f"acceptable but marginal. Consider increasing the sample size "
                 f"for more reliable validation."
             )
         else:
             parts.append(
-                f"The p-value ({p_value:.3f}) indicates the Gumbel distribution "
+                f"The p-value ({shown}) indicates the Gumbel distribution "
                 f"does not adequately model this data. Investigate possible causes: "
                 f"outliers, mixed degradation populations, or non-stationary corrosion."
             )

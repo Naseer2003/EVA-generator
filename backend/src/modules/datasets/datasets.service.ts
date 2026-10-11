@@ -1,10 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import * as fs from 'fs';
 import * as csv from 'csv-parse/sync';
 import { execSync } from 'child_process';
 import { join } from 'path';
+
+/** Minimum observations the statistical engine needs to fit a distribution. */
+const MIN_OBSERVATIONS = 5;
 
 @Injectable()
 export class DatasetsService {
@@ -133,6 +141,11 @@ export class DatasetsService {
     const rawData = this.parseDataFile(finalPath);
     const rowCount = rawData.length;
 
+    // The engine needs at least 5 observations to fit a Gumbel. Marking a file
+    // VALIDATED regardless of what we could parse out of it hides the problem
+    // until the user runs an analysis and gets a failure instead.
+    const status = rowCount >= MIN_OBSERVATIONS ? 'VALIDATED' : 'INVALID';
+
     const dataset = await this.prisma.dataset.create({
       data: {
         name: (name?.trim()) || file.originalname.replace(/\.[^.]+$/, ''),
@@ -140,7 +153,7 @@ export class DatasetsService {
         userId,
         tenantId,
         rowCount,
-        status: 'VALIDATED',
+        status,
       },
     });
     return { datasetId: dataset.id, name: dataset.name, status: dataset.status, rowCount };
@@ -153,9 +166,45 @@ export class DatasetsService {
     });
   }
 
-  async findById(id: string) {
-    const d = await this.prisma.dataset.findUnique({ where: { id } });
+  /**
+   * Look a dataset up, scoped to its owner.
+   *
+   * `userId` is required: without it any authenticated user could read or
+   * delete another tenant's dataset just by knowing its UUID. A dataset that
+   * exists but belongs to someone else reports as not found, so the endpoint
+   * does not leak which ids are real.
+   */
+  async findById(id: string, userId: string) {
+    const d = await this.prisma.dataset.findFirst({ where: { id, userId } });
     if (!d) throw new NotFoundException('Dataset not found');
     return d;
+  }
+
+  async remove(id: string, userId: string) {
+    const dataset = await this.findById(id, userId);
+
+    // EvaRun.datasetId is a required relation — deleting a dataset still
+    // referenced by a run would break every one of those result pages.
+    const runCount = await this.prisma.evaRun.count({ where: { datasetId: id } });
+    if (runCount > 0) {
+      throw new ConflictException(
+        `Cannot delete "${dataset.name}": ${runCount} analysis run${runCount === 1 ? '' : 's'} ` +
+        `still reference${runCount === 1 ? 's' : ''} it. Delete those runs first.`,
+      );
+    }
+
+    await this.prisma.dataset.delete({ where: { id } });
+
+    // Best-effort cleanup of the stored file and its sidecar metadata. A
+    // failure here must not fail the request — the record is already gone.
+    for (const p of [dataset.filePath, dataset.filePath.replace(/\.csv$/i, '-meta.json')]) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch (err) {
+        console.error(`Failed to delete file ${p} for dataset ${id}`, err);
+      }
+    }
+
+    return { id, name: dataset.name, deleted: true };
   }
 }

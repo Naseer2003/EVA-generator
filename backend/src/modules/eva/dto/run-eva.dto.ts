@@ -34,11 +34,14 @@ export class RunEvaDto {
   @IsOptional()
   nBootstrap?: number = 1000;
 
+  // N — the total population: every unit in the bundle / circuit. This is a
+  // required engineering input and is never inferred from the dataset row
+  // count, which is the inspected sample size n. EVA extrapolates n -> N, so
+  // the engine needs N >= 2 (y_N = -ln(-ln(1 - 1/N)) is undefined below that).
   @IsNumber()
-  @Min(1)
+  @Min(2)
   @Max(1000000)
-  @IsOptional()
-  totalPopulation?: number;
+  totalPopulation: number;
 
   @IsNumber()
   @IsOptional()

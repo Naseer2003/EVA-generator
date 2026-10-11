@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Param, UseGuards, Request,
+  Controller, Post, Get, Delete, Param, UseGuards, Request,
   UploadedFile, UseInterceptors, BadRequestException,
   Res, StreamableFile, NotFoundException, Body,
 } from '@nestjs/common';
@@ -72,22 +72,34 @@ export class DatasetsController {
   }
 
   @Get(':id/download')
-  async download(@Param('id') id: string, @Res({ passthrough: true }) res: any) {
-    console.log('Processing download request for ID:', id);
-    const dataset = await this.datasets.findById(id);
+  async download(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const dataset = await this.datasets.findById(id, req.user.id);
     const fullPath = join(process.cwd(), dataset.filePath);
 
     if (!existsSync(fullPath)) {
       throw new NotFoundException('Physical file not found on server');
     }
 
-    const file = createReadStream(fullPath);
-    
+    // Datasets are always stored as CSV (xlsx/xlsm are converted on upload),
+    // but the dataset name is free text and usually carries no extension —
+    // without one the browser saves an extensionless file.
+    const safeName = dataset.name.replace(/[\\/:*?"<>|]/g, '_');
+    const fileName = /\.csv$/i.test(safeName) ? safeName : `${safeName}.csv`;
+
     res.set({
       'Content-Type': 'text/csv',
-      'Content-Disposition': `attachment; filename="${dataset.name}"`,
+      'Content-Disposition': `attachment; filename="${fileName}"`,
     });
-    
-    return new StreamableFile(file);
+
+    return new StreamableFile(createReadStream(fullPath));
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string, @Request() req: any) {
+    return this.datasets.remove(id, req.user.id);
   }
 }

@@ -40,6 +40,7 @@ export const datasetsApi = {
   getAll: () => api.get('/datasets'),
   getById: (id: string) => api.get(`/datasets/${id}`),
   download: (id: string) => api.get(`/datasets/${id}/download`, { responseType: 'blob' }),
+  remove: (id: string) => api.delete(`/datasets/${id}`),
 };
 
 // EVA Runs
@@ -51,7 +52,7 @@ export const evaApi = {
     confidenceLevel?: number;
     returnPeriods?: number[];
     nBootstrap?: number;
-    totalPopulation?: number;
+    totalPopulation: number;
     originalThickness?: number;
     serviceStartDate?: string;
     inspectionDate?: string;
@@ -59,7 +60,10 @@ export const evaApi = {
   }) => api.post('/eva/run', payload),
   getResults: (runId: string) => api.get(`/eva/${runId}/results`),
   getMyRuns: () => api.get('/eva/my-runs'),
-  runADTest: (datasetId: string, body?: { totalPopulation?: number }) => api.post(`/eva/ad-test/${datasetId}`, body ?? {}),
+  // originalThickness converts readings to wall loss, so the goodness-of-fit
+  // test validates the same variable the EVA run fits.
+  runADTest: (datasetId: string, body?: { originalThickness?: number }) =>
+    api.post(`/eva/ad-test/${datasetId}`, body ?? {}),
 };
 
 // Assets
