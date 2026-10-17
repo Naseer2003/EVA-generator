@@ -16,6 +16,22 @@ from typing import List
 from app.statistics.preprocessing import plotting_positions, reduced_variates
 from app.statistics.distributions import calculate_gumbel_se, calculate_t_value
 
+# Plot payloads are display data: the UI renders them to 3-4 decimal places and
+# they are persisted verbatim in EvaRun.result. Serialising full float64 repr
+# (0.33744000000000014) instead of 0.33744 roughly triples the size of the
+# per-observation table, which for 1140 tubes is the difference between a
+# ~660 KB and a ~260 KB response that is re-fetched on every results page load.
+# Six decimals on a millimetre is a nanometre — far beyond any NDE resolution.
+_DP = 6
+
+
+def _r(value) -> float:
+    return round(float(value), _DP)
+
+
+def _rlist(values) -> list:
+    return [round(float(v), _DP) for v in values]
+
 
 def build_probability_plot_data(
     data: np.ndarray, mu: float, beta: float
@@ -67,27 +83,27 @@ def build_probability_plot_data(
         
         tabular_data.append({
             "rank": int(i + 1),
-            "observed": float(x),
-            "probability": float(p),
-            "reduced_variate": float(y),
-            "ln_pdf": ln_pdf,
-            "best_fit": best_fit,
-            "se": se,
-            "ci_80_lower": float(best_fit - t_80 * se),
-            "ci_80_upper": float(best_fit + t_80 * se),
-            "ci_90_lower": float(best_fit - t_90 * se),
-            "ci_90_upper": float(best_fit + t_90 * se),
-            "ci_95_lower": float(best_fit - t_95 * se),
-            "ci_95_upper": float(best_fit + t_95 * se),
-            "ci_99_lower": float(best_fit - t_99 * se),
-            "ci_99_upper": float(best_fit + t_99 * se),
+            "observed": _r(x),
+            "probability": _r(p),
+            "reduced_variate": _r(y),
+            "ln_pdf": _r(ln_pdf),
+            "best_fit": _r(best_fit),
+            "se": _r(se),
+            "ci_80_lower": _r(best_fit - t_80 * se),
+            "ci_80_upper": _r(best_fit + t_80 * se),
+            "ci_90_lower": _r(best_fit - t_90 * se),
+            "ci_90_upper": _r(best_fit + t_90 * se),
+            "ci_95_lower": _r(best_fit - t_95 * se),
+            "ci_95_upper": _r(best_fit + t_95 * se),
+            "ci_99_lower": _r(best_fit - t_99 * se),
+            "ci_99_upper": _r(best_fit + t_99 * se),
         })
 
     return {
-        "observed":         x_sorted.tolist(),
-        "theoretical":      theoretical.tolist(),
-        "reduced_variates": reduced.tolist(),
-        "probabilities":    probs.tolist(),
+        "observed":         _rlist(x_sorted),
+        "theoretical":      _rlist(theoretical),
+        "reduced_variates": _rlist(reduced),
+        "probabilities":    _rlist(probs),
         "tabular_data":     tabular_data,
     }
 
@@ -155,12 +171,12 @@ def build_return_level_plot_data(
         ci_upper.append(float(x_N + w))
 
     return {
-        "curve_periods":   n_grid.tolist(),
-        "curve_values":    curve_values,
-        "curve_ci_lower":  curve_ci_lower,
-        "curve_ci_upper":  curve_ci_upper,
+        "curve_periods":   _rlist(n_grid),
+        "curve_values":    _rlist(curve_values),
+        "curve_ci_lower":  _rlist(curve_ci_lower),
+        "curve_ci_upper":  _rlist(curve_ci_upper),
         "periods":         periods_list,
-        "values":          values_list,
-        "ci_lower":        ci_lower,
-        "ci_upper":        ci_upper,
+        "values":          _rlist(values_list),
+        "ci_lower":        _rlist(ci_lower),
+        "ci_upper":        _rlist(ci_upper),
     }

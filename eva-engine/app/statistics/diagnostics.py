@@ -13,10 +13,12 @@ The AD* = (1 + 0.2/√n)·AD correction is Weibull-specific (MIL-HDBK-17)
 and is NOT applied here. For Gumbel, the sample-size-dependent CV tables
 already account for finite-sample effects.
 """
+from functools import lru_cache
+
 import numpy as np
 from scipy import stats
 from app.statistics.distributions import gumbel_cdf
-from app.statistics.mle import fit_gumbel_mle
+from app.statistics.mle import fit_gumbel_mle, fit_gumbel_mle_batch
 
 
 # ─── Gumbel AD Critical Values (2012 Paper, Table 1, Mean Function, MLE) ────
@@ -104,6 +106,47 @@ def _compute_ad_statistic(data_sorted: np.ndarray, mu: float, beta: float) -> fl
     return float(A2)
 
 
+def _batch_ad_statistic(sorted_rows: np.ndarray, mu: np.ndarray, beta: np.ndarray) -> np.ndarray:
+    """A² for every sorted row, vectorised. Mirrors _compute_ad_statistic."""
+    n = sorted_rows.shape[1]
+    z = (sorted_rows - mu[:, None]) / beta[:, None]
+    F = np.clip(np.exp(-np.exp(-z)), 1e-10, 1 - 1e-10)
+    i = np.arange(1, n + 1)
+    total = ((2 * i - 1) * (np.log(F) + np.log(1.0 - F[:, ::-1]))).sum(axis=1)
+    return -n - total / n
+
+
+@lru_cache(maxsize=32)
+def _null_a2_distribution(n: int, n_simulations: int = 10000, seed: int = 42) -> tuple:
+    """
+    Sorted null distribution of A² for a Gumbel fit with BOTH parameters
+    estimated by MLE, at sample size n.
+
+    Cached, and simulated from Gumbel(0, 1) rather than from the caller's
+    (μ, β). Gumbel is a location-scale family and both parameters are
+    estimated, so A² is parameter-free under H₀ — verified to 1e-13 across μ
+    and β spanning five orders of magnitude. That makes the null a function of
+    n alone, so it is computed once per sample size instead of once per
+    request. Previously this ran 10,000 scipy optimisations on every single
+    analysis, which was essentially the entire response time.
+
+    Returned as a tuple so lru_cache can hold it (arrays are unhashable).
+    """
+    rng = np.random.default_rng(seed)
+    out = []
+    # Simulate in blocks: at n = 1140 a single 10,000-row array is ~90 MB.
+    block = max(1, min(n_simulations, 2_000_000 // max(n, 1)))
+    remaining = n_simulations
+    while remaining > 0:
+        size = min(block, remaining)
+        u = np.clip(rng.uniform(0, 1, size=(size, n)), 1e-10, 1 - 1e-10)
+        samples = np.sort(-np.log(-np.log(u)), axis=1)      # Gumbel(0, 1)
+        mu_s, beta_s = fit_gumbel_mle_batch(samples)
+        out.append(_batch_ad_statistic(samples, mu_s, beta_s))
+        remaining -= size
+    return tuple(np.sort(np.concatenate(out)).tolist())
+
+
 def _monte_carlo_p_value(
     ad_observed: float,
     n: int,
@@ -113,50 +156,19 @@ def _monte_carlo_p_value(
     seed: int = 42,
 ) -> float:
     """
-    Compute the Monte Carlo p-value for the AD statistic under H₀: Gumbel.
+    Monte Carlo p-value for the AD statistic under H₀: Gumbel.
 
-    Procedure:
-      1. Generate n_simulations synthetic samples of size n from Gumbel(μ, β)
-      2. For each sample: re-estimate parameters via MLE, compute AD statistic
-      3. p-value = proportion of simulated AD statistics ≥ ad_observed
+    p = (b + 1) / (m + 1) where b is the count of simulated statistics at or
+    above the observed one. The naive b/m returns exactly 0 when none exceed,
+    and a p-value of 0 is impossible — North, Curtis & Sham (2002),
+    Am J Hum Genet 71:439.
 
-    This gives the exact (simulation-based) probability of observing an AD
-    statistic as extreme as the one computed from the real data, assuming
-    the Gumbel distribution is correct.
-
-    The re-estimation step is critical: since we estimated parameters from
-    data, the null distribution of AD depends on the estimation procedure.
-    Simply generating from known parameters would give the wrong distribution
-    (the "known parameter" case from Anderson 1954/2010, which has much
-    larger critical values).
+    mu and beta are accepted for API compatibility but are not used: the null
+    is parameter-free (see _null_a2_distribution).
     """
-    rng = np.random.default_rng(seed)
-    count_exceed = 0
-
-    for _ in range(n_simulations):
-        # Generate synthetic Gumbel sample
-        # Gumbel CDF: F(x) = exp(-exp(-(x-μ)/β))
-        # Inverse CDF (quantile function): x = μ - β * ln(-ln(u))
-        u = rng.uniform(0, 1, size=n)
-        u = np.clip(u, 1e-10, 1 - 1e-10)
-        synthetic = mu - beta * np.log(-np.log(u))
-        synthetic = np.sort(synthetic)
-
-        # Re-estimate parameters via MLE
-        try:
-            mu_sim, beta_sim, _ = fit_gumbel_mle(synthetic)
-        except Exception:
-            continue  # skip failed fits
-
-        # Compute AD statistic for the synthetic sample
-        ad_sim = _compute_ad_statistic(synthetic, mu_sim, beta_sim)
-        if ad_sim >= ad_observed:
-            count_exceed += 1
-
-    # (b+1)/(m+1), not b/m: the naive ratio returns exactly 0 when no simulated
-    # statistic exceeds the observed one, and a p-value of 0 is impossible.
-    # North, Curtis & Sham (2002), Am J Hum Genet 71:439.
-    return (count_exceed + 1) / (n_simulations + 1)
+    null = np.asarray(_null_a2_distribution(int(n), int(n_simulations), int(seed)))
+    exceed = null.size - int(np.searchsorted(null, ad_observed, side="left"))
+    return (exceed + 1) / (null.size + 1)
 
 
 def _generate_interpretation(

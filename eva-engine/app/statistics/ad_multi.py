@@ -24,6 +24,7 @@ from scipy import stats
 from typing import List, Dict, Optional, Any
 from app.statistics.distributions import gumbel_cdf
 from app.statistics.mle import fit_gumbel_mle
+from app.statistics.diagnostics import _null_a2_distribution
 
 
 def _ad_statistic_generic(data_sorted: np.ndarray, cdf_values: np.ndarray) -> float:
@@ -413,24 +414,13 @@ def _gumbel_monte_carlo_pvalue(
     exactly the resolution limit of the simulation, so it is reported as an
     upper bound.
     """
-    rng = np.random.default_rng(42)
-    count = 0
-    for _ in range(n_sim):
-        u = rng.uniform(0, 1, size=n)
-        u = np.clip(u, 1e-10, 1 - 1e-10)
-        synthetic = mu - beta * np.log(-np.log(u))
-        synthetic = np.sort(synthetic)
-        try:
-            mu_s, beta_s, _ = fit_gumbel_mle(synthetic)
-        except Exception:
-            continue
-        F_s = gumbel_cdf(synthetic, mu_s, beta_s)
-        F_s = np.clip(F_s, 1e-10, 1 - 1e-10)
-        ad_s = _ad_statistic_generic(synthetic, F_s)
-        if ad_s >= ad_observed:
-            count += 1
-    p = (count + 1) / (n_sim + 1)
-    return float(p), bool(count == 0), int(n_sim)
+    # Shares the cached, parameter-free null with diagnostics.py. mu and beta
+    # are unused: under H0 the distribution of A^2 for a Gumbel fit with both
+    # parameters estimated depends only on n.
+    null = np.asarray(_null_a2_distribution(int(n), int(n_sim), 42))
+    count = null.size - int(np.searchsorted(null, ad_observed, side="left"))
+    p = (count + 1) / (null.size + 1)
+    return float(p), bool(count == 0), int(null.size)
 
 
 def run_multi_distribution_ad_test(

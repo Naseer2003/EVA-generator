@@ -248,10 +248,30 @@ export class EvaService {
     return run;
   }
 
+  /**
+   * Summary list for the dashboard and reports pages.
+   *
+   * Explicitly SELECTS the handful of fields those pages render. The previous
+   * query used `include`, which returns every scalar column as well — and
+   * EvaRun.result holds the full engine response: ~160 KB for a 259-tube run,
+   * ~660 KB for 1140 tubes, most of it per-observation plot rows that no list
+   * view touches. Combined with every ReturnLevel and its allConfidences JSON,
+   * a user with twenty runs was downloading well over 10 MB to render a table
+   * of dates and status badges.
+   */
   async getRunsByUser(userId: string) {
     const runs = await this.prisma.evaRun.findMany({
       where: { userId },
-      include: { returnLevels: true, dataset: { select: { name: true } } },
+      select: {
+        id: true,
+        status: true,
+        method: true,
+        createdAt: true,
+        completedAt: true,
+        adPassed: true,
+        totalPopulation: true,
+        dataset: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
     return runs.map((run) => ({

@@ -17,6 +17,10 @@ import {
   Zap,
   History
 } from 'lucide-react';
+// Recharts is ~400 KB. Importing it directly here put a second, eager copy in
+// the bundle alongside the lazily-loaded one the AD pages already use. Routing
+// every page through the same dynamic wrapper leaves one shared async chunk
+// that is fetched only when a chart first mounts.
 import {
   Line,
   XAxis,
@@ -27,7 +31,7 @@ import {
   Scatter,
   ComposedChart,
   ReferenceLine
-} from 'recharts';
+} from '@/components/charts/lazy-charts';
 import { evaApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { generateGumbelPlotSvg, generateCdfPlotSvg, generateTubeSheetMapSvg, generateInspectionSummaryTable } from '@/components/StaticReportPrinter';
