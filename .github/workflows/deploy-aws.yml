@@ -1,0 +1,241 @@
+name: Deploy to AWS
+
+# Builds the three images, pushes them to ECR, and rolls the ECS service.
+#
+# Authentication uses GitHub's OIDC provider — there are no long-lived AWS keys
+# in this repository. See deploy/aws/README.md for the one-time trust policy.
+#
+# Application secrets (DATABASE_URL, JWT_SECRET) are NOT passed from GitHub.
+# They are read from AWS Secrets Manager by the task definition at task start,
+# so they never pass through the CI logs or the Actions environment.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to deploy (defaults to the commit SHA)"
+        required: false
+
+concurrency:
+  # One deploy at a time. Do NOT cancel in progress: aborting midway through
+  # an ECS rollout leaves the service half-updated.
+  group: deploy-aws
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write        # required to mint the OIDC token for AWS
+
+jobs:
+  deploy:
+    name: Build, push and roll out
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail fast on missing configuration
+        run: |
+          missing=""
+          for v in AWS_REGION ECS_CLUSTER ECS_SERVICE PUBLIC_APP_URL; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository variables:$missing"
+            echo "Set them under Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+          # PUBLIC_APP_URL is baked into the frontend bundle; a trailing slash
+          # would produce //api/v1 in every request.
+          case "$PUBLIC_APP_URL" in
+            */) echo "::error::PUBLIC_APP_URL must not end with a slash"; exit 1 ;;
+            http*) ;;
+            *) echo "::error::PUBLIC_APP_URL must include the scheme"; exit 1 ;;
+          esac
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - uses: docker/setup-buildx-action@v3
+
+      # ── images ────────────────────────────────────────────────────────────
+      # Each repository must already exist; `aws ecr create-repository` is in
+      # the setup notes. Buildx layer cache lives in the ECR repo itself so it
+      # survives between runners.
+
+      - name: Build and push engine
+        uses: docker/build-push-action@v6
+        with:
+          context: ./eva-engine
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/eva-engine:${{ steps.tag.outputs.value }}
+            ${{ steps.ecr.outputs.registry }}/eva-engine:latest
+          cache-from: type=gha,scope=engine
+          cache-to: type=gha,mode=max,scope=engine
+          provenance: false
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/eva-backend:${{ steps.tag.outputs.value }}
+            ${{ steps.ecr.outputs.registry }}/eva-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          provenance: false
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          # NEXT_PUBLIC_* is inlined by `next build`, not read at container
+          # start, so the public origin has to be known here. The ALB routes
+          # /api/* to the backend, which keeps the API same-origin and means
+          # the browser never needs CORS.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PUBLIC_APP_URL }}/api/v1
+            NEXT_PUBLIC_EVA_ENGINE_URL=${{ vars.PUBLIC_APP_URL }}
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/eva-frontend:${{ steps.tag.outputs.value }}
+            ${{ steps.ecr.outputs.registry }}/eva-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          provenance: false
+
+      # ── task definition ───────────────────────────────────────────────────
+
+      - name: Render task definition
+        id: render
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+          TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
+          LOG_GROUP: ${{ vars.CLOUDWATCH_LOG_GROUP }}
+          EFS_FILE_SYSTEM_ID: ${{ vars.EFS_FILE_SYSTEM_ID }}
+          EFS_ACCESS_POINT_ID: ${{ vars.EFS_ACCESS_POINT_ID }}
+          DATABASE_URL_ARN: ${{ vars.DATABASE_URL_SECRET_ARN }}
+          JWT_SECRET_ARN: ${{ vars.JWT_SECRET_ARN }}
+        run: |
+          set -euo pipefail
+          # envsubst only the names we define, so any literal $ in the template
+          # survives untouched.
+          names='$REGISTRY $IMAGE_TAG $AWS_REGION $AWS_ACCOUNT_ID $PUBLIC_APP_URL'
+          names="$names "'$EXECUTION_ROLE_ARN $TASK_ROLE_ARN $LOG_GROUP'
+          names="$names "'$EFS_FILE_SYSTEM_ID $EFS_ACCESS_POINT_ID'
+          names="$names "'$DATABASE_URL_ARN $JWT_SECRET_ARN'
+          envsubst "$names" < deploy/aws/task-definition.json > /tmp/task-definition.json
+          if grep -q '\${' /tmp/task-definition.json; then
+            echo "::error::Unsubstituted placeholders remain in the task definition:"
+            grep -o '\${[A-Z_]*}' /tmp/task-definition.json | sort -u
+            exit 1
+          fi
+          python3 -c "import json,sys; json.load(open('/tmp/task-definition.json'))" \
+            || { echo "::error::Rendered task definition is not valid JSON"; exit 1; }
+          echo "path=/tmp/task-definition.json" >> "$GITHUB_OUTPUT"
+
+      # ── database migrations ───────────────────────────────────────────────
+      # Run before the rollout so the new code never meets an old schema.
+      # This is a one-off Fargate task rather than a step here, so the database
+      # stays reachable only from inside the VPC and credentials stay in
+      # Secrets Manager.
+
+      - name: Run Prisma migrations
+        if: vars.MIGRATION_TASK_DEFINITION != ''
+        run: |
+          set -euo pipefail
+          arn=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "${{ vars.MIGRATION_TASK_DEFINITION }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.SUBNET_IDS }}],securityGroups=[${{ vars.SECURITY_GROUP_ID }}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "migration task: $arn"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$arn"
+          code=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$arn" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          if [ "$code" != "0" ]; then
+            echo "::error::Migration task exited with $code — rollout aborted, service untouched."
+            exit 1
+          fi
+
+      # ── rollout ───────────────────────────────────────────────────────────
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.path }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          # Blocks until ECS reports steady state. With the circuit breaker
+          # enabled on the service (see the setup notes) a failed rollout is
+          # rolled back automatically and this step then fails.
+          wait-for-service-stability: true
+          wait-for-minutes: 15
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              "$PUBLIC_APP_URL/login" || echo 000)
+            api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              "$PUBLIC_APP_URL/api/v1/datasets" || echo 000)
+            # 401 from the API is the healthy answer: the route exists and the
+            # JWT guard rejected an unauthenticated probe.
+            if [ "$code" = "200" ] && [ "$api" = "401" ]; then
+              echo "smoke test passed (UI 200, API 401 unauthenticated)"
+              exit 0
+            fi
+            echo "attempt $attempt: UI=$code API=$api — retrying"
+            sleep 15
+          done
+          echo "::error::Smoke test never passed. ECS reported stable, so check"
+          echo "ALB target group health and container logs in ${{ vars.CLOUDWATCH_LOG_GROUP }}."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | \`${{ steps.tag.outputs.value }}\` |"
+            echo "| Cluster | \`$ECS_CLUSTER\` |"
+            echo "| Service | \`$ECS_SERVICE\` |"
+            echo "| URL | $PUBLIC_APP_URL |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

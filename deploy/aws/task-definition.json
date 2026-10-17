@@ -1,0 +1,136 @@
+{
+  "family": "eva",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "${EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${TASK_ROLE_ARN}",
+
+  "volumes": [
+    {
+      "name": "uploads",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "${EFS_FILE_SYSTEM_ID}",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "${EFS_ACCESS_POINT_ID}",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ],
+
+  "containerDefinitions": [
+    {
+      "name": "engine",
+      "image": "${REGISTRY}/eva-engine:${IMAGE_TAG}",
+      "essential": true,
+      "cpu": 1024,
+      "memory": 2048,
+      "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "UVICORN_WORKERS", "value": "2" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/',timeout=4).status==200 else 1)\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${LOG_GROUP}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "engine"
+        }
+      }
+    },
+
+    {
+      "name": "backend",
+      "image": "${REGISTRY}/eva-backend:${IMAGE_TAG}",
+      "essential": true,
+      "cpu": 512,
+      "memory": 1024,
+      "portMappings": [{ "containerPort": 3001, "protocol": "tcp" }],
+      "dependsOn": [
+        { "containerName": "engine", "condition": "HEALTHY" }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3001" },
+        { "name": "JWT_EXPIRES_IN", "value": "7d" },
+        { "name": "MAX_FILE_SIZE_MB", "value": "50" },
+        { "name": "PYTHON_BIN", "value": "/opt/pyenv/bin/python" },
+        { "name": "FRONTEND_URL", "value": "${PUBLIC_APP_URL}" },
+        { "name": "EVA_ENGINE_URL", "value": "http://localhost:8000" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "${DATABASE_URL_ARN}" },
+        { "name": "DIRECT_URL", "valueFrom": "${DATABASE_URL_ARN}" },
+        { "name": "JWT_SECRET", "valueFrom": "${JWT_SECRET_ARN}" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "uploads",
+          "containerPath": "/app/uploads",
+          "readOnly": false
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/api/v1/datasets').then(r=>process.exit(r.status===401?0:1)).catch(()=>process.exit(1))\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 40
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${LOG_GROUP}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "backend"
+        }
+      }
+    },
+
+    {
+      "name": "frontend",
+      "image": "${REGISTRY}/eva-frontend:${IMAGE_TAG}",
+      "essential": true,
+      "cpu": 512,
+      "memory": 1024,
+      "portMappings": [{ "containerPort": 3000, "protocol": "tcp" }],
+      "dependsOn": [
+        { "containerName": "backend", "condition": "HEALTHY" }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3000" },
+        { "name": "HOSTNAME", "value": "0.0.0.0" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${LOG_GROUP}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "frontend"
+        }
+      }
+    }
+  ]
+}
