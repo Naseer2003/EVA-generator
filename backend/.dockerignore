@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.*
+uploads/
+scratch/
+__pycache__/
+coverage/
+*.log
+
+# Local scratch output committed to the working tree over time
+*.txt
+list_all.js
+output.txt
+
+test/
+Dockerfile
+.dockerignore
+README.md

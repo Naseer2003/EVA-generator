@@ -1,0 +1,86 @@
+# EVA platform — local / single-host deployment.
+#
+#   docker compose up --build
+#
+# Copy .env.example to .env first and set DATABASE_URL and JWT_SECRET.
+#
+# Service graph:
+#   frontend (3000) ──browser──▶ backend (3001) ──▶ engine (8000)
+#                                    └──▶ PostgreSQL (external, e.g. Neon)
+#
+# The browser talks to the backend over the published port, so the frontend is
+# built with NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1. Put this behind
+# a reverse proxy on a real host and rebuild with the public URL instead.
+
+services:
+  engine:
+    build:
+      context: ./eva-engine
+    image: eva-engine:latest
+    restart: unless-stopped
+    environment:
+      # Monte Carlo + MLE are CPU-bound; raise alongside CPU limits.
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+    # Not published by default — only the backend calls it. Uncomment to probe
+    # /docs or run the verification scripts against it from the host.
+    # ports:
+    #   - "8000:8000"
+    networks:
+      - eva
+
+  backend:
+    build:
+      context: ./backend
+    image: eva-backend:latest
+    restart: unless-stopped
+    depends_on:
+      engine:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      EVA_ENGINE_URL: http://engine:8000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
+    volumes:
+      # Uploaded CSVs and their -meta.json sidecars. Without this, every
+      # dataset is lost when the container is replaced — and EvaRun rows keep
+      # referencing files that no longer exist, so results pages break.
+      - eva-uploads:/app/uploads
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    networks:
+      - eva
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Build-time only. The browser resolves this, so it must be reachable
+        # from the host — not the compose service name.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+        NEXT_PUBLIC_EVA_ENGINE_URL: ${NEXT_PUBLIC_EVA_ENGINE_URL:-http://localhost:8000}
+    image: eva-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - eva
+
+volumes:
+  eva-uploads:
+
+networks:
+  eva:
+    driver: bridge

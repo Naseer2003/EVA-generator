@@ -1,0 +1,20 @@
+# Keep the build context small and avoid baking local state into the image.
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env
+.env.*
+scratch/
+
+# Local verification scripts — not part of the service
+audit_all.py
+verify_fix.py
+test_*.py
+
+Dockerfile
+.dockerignore
+AGENTS.md

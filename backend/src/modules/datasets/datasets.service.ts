@@ -18,6 +18,22 @@ const MIN_OBSERVATIONS = 5;
 export class DatasetsService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Interpreter used to run parse_excel.py (needs pandas + openpyxl).
+   *
+   * In a container the backend image ships its own Python, so PYTHON_BIN
+   * points straight at it. The fallback is the local Windows dev layout, where
+   * the engine's virtualenv sits in a sibling directory. Without this the path
+   * is hardcoded to venv/Scripts/python, which exists only on Windows and only
+   * outside Docker.
+   */
+  private pythonBin(): string {
+    return (
+      process.env.PYTHON_BIN ||
+      join(process.cwd(), '..', 'eva-engine', 'venv', 'Scripts', 'python')
+    );
+  }
+
   private parseDataFile(filePath: string, sheetName?: string): number[] {
     if (!fs.existsSync(filePath)) {
       return [];
@@ -26,7 +42,7 @@ export class DatasetsService {
 
     if (ext === 'xlsx' || ext === 'xlsm') {
       try {
-        const pythonPath = join(process.cwd(), '..', 'eva-engine', 'venv', 'Scripts', 'python');
+        const pythonPath = this.pythonBin();
         const scriptPath = join(process.cwd(), 'parse_excel.py');
         const sheetArg = sheetName ? `"${sheetName}"` : '';
         const cmd = `"${pythonPath}" "${scriptPath}" "${filePath}" parse ${sheetArg}`;
@@ -64,7 +80,7 @@ export class DatasetsService {
 
   async inspectExcelSheets(filePath: string) {
     try {
-      const pythonPath = join(process.cwd(), '..', 'eva-engine', 'venv', 'Scripts', 'python');
+      const pythonPath = this.pythonBin();
       const scriptPath = join(process.cwd(), 'parse_excel.py');
       const cmd = `"${pythonPath}" "${scriptPath}" "${filePath}" list-sheets`;
       const stdout = execSync(cmd, { encoding: 'utf-8' });
@@ -96,7 +112,7 @@ export class DatasetsService {
       let measurements: any[] = [];
 
       try {
-        const pythonPath = join(process.cwd(), '..', 'eva-engine', 'venv', 'Scripts', 'python');
+        const pythonPath = this.pythonBin();
         const scriptPath = join(process.cwd(), 'parse_excel.py');
         const sheetArg = sheetName ? `"${sheetName}"` : '';
         const cmd = `"${pythonPath}" "${scriptPath}" "${file.path}" parse ${sheetArg}`;

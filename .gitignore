@@ -38,6 +38,10 @@ results/
 temp/
 scratch/
 *.txt
+# ...but dependency manifests are not scratch. Without this exception a fresh
+# clone has no requirements-docker.txt and both the CI job and the engine image
+# build fail with "file not found".
+!**/requirements*.txt
 audit_all.py
 verify_fix.py
 test_ad*.py

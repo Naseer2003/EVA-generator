@@ -1,0 +1,18 @@
+# Runtime dependencies for the container image.
+#
+# requirements.txt is the development pin set and carries several packages the
+# service never imports — matplotlib, plotly, pandas, psycopg2-binary,
+# python-jose and httpx are all unused by app/ and main.py (the engine talks
+# HTTP only and does no plotting server-side; plot data is returned as JSON).
+# Excel parsing lives in the backend, not here, so pandas/openpyxl are not
+# needed either. Dropping them takes roughly 400 MB off the image.
+#
+# Verified import surface: fastapi, numpy, pydantic, pydantic_settings, scipy,
+# uvicorn. Keep this file in step if the engine grows a new dependency.
+
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+numpy>=1.26
+scipy>=1.12
+pydantic>=2.7
+pydantic-settings>=2.2.1
