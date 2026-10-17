@@ -6,13 +6,39 @@
 #
 # Service graph:
 #   frontend (3000) ──browser──▶ backend (3001) ──▶ engine (8000)
-#                                    └──▶ PostgreSQL (external, e.g. Neon)
+#                                    └──▶ postgres (5432)
+#
+# Postgres runs here by default. To use a managed database instead (Neon, RDS),
+# set DATABASE_URL to it in .env and start without the db service:
+#   docker compose up -d engine backend frontend
 #
 # The browser talks to the backend over the published port, so the frontend is
 # built with NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1. Put this behind
 # a reverse proxy on a real host and rebuild with the public URL instead.
 
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eva}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-eva}
+    volumes:
+      - eva-db:/var/lib/postgresql/data
+    healthcheck:
+      # Without -d the check passes before the application database exists,
+      # letting the backend start against a server that is not ready for it.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eva} -d ${POSTGRES_DB:-eva}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    # Not published: only the backend needs it, and exposing 5432 to the host
+    # is the most common way these end up reachable from outside.
+    networks:
+      - eva
+
   engine:
     build:
       context: ./eva-engine
@@ -36,11 +62,15 @@ services:
     depends_on:
       engine:
         condition: service_healthy
+      db:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
-      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
+      # Defaults to the bundled Postgres; override in .env to point at a
+      # managed database instead.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-eva}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-eva}}
+      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL:-postgresql://${POSTGRES_USER:-eva}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-eva}}}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       EVA_ENGINE_URL: http://engine:8000
@@ -80,6 +110,7 @@ services:
 
 volumes:
   eva-uploads:
+  eva-db:
 
 networks:
   eva:

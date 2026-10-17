@@ -25,6 +25,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# NOTE: gzip is deliberately NOT enabled here. The only caller is the backend,
+# and that hop is always local — same Docker network under compose, plain
+# localhost inside the ECS task. Measured at n=1140: compressing the ~400 KB
+# response cuts it to ~86 KB but takes the call from 53 ms to 87 ms, because
+# the CPU spent compressing exceeds the transfer time saved on loopback.
+# Compression belongs on the backend -> browser hop, where it is a real win.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:3001"],

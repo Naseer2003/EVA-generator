@@ -2,7 +2,9 @@
 
 # Dependencies
 /node_modules
-/package-lock.json
+# package-lock.json is intentionally committed: `npm ci` requires it, and
+# CI plus both Dockerfiles rely on `npm ci` for reproducible installs.
+# Ignoring it made every one of those fail on a fresh clone.
 
 # Build output
 /dist

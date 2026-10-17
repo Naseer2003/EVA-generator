@@ -105,8 +105,10 @@ export class EvaService {
         }),
       );
 
-      // ── 5. Store Results in DB ─────────────────────────────────────────────
-      await this.prisma.evaRun.update({
+      // ── 5. Persist ─────────────────────────────────────────────────────────
+      // Prisma operations are lazy until awaited, so these two are built here
+      // and issued together below as a single transaction.
+      const persistRun = this.prisma.evaRun.update({
         where: { id: run.id },
         data: {
           mu: result.parameters.mu,
@@ -141,7 +143,7 @@ export class EvaService {
       const primaryCL = dto.confidenceLevel ?? 0.95;
       const primaryClLabel = Math.round(primaryCL * 100).toString();
 
-      await this.prisma.returnLevel.createMany({
+      const persistLevels = this.prisma.returnLevel.createMany({
         data: result.return_levels.map((rl: any) => {
           const primaryCi = rl.all_confidences?.[primaryClLabel];
           // For wall loss, the conservative value is the upper bound (ci_upper)
@@ -214,6 +216,11 @@ export class EvaService {
           };
         }),
       });
+
+      // One network round trip instead of two, and atomic. Previously a failure
+      // between the two writes left a run marked COMPLETED with no return
+      // levels, which renders as an empty forecast table.
+      await this.prisma.$transaction([persistRun, persistLevels]);
 
       return { runId: run.id, status: 'COMPLETED', result };
     } catch (err) {

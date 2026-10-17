@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -56,6 +56,20 @@ export default function ResultsPage() {
     }
     fetchResults();
   }, [id]);
+
+  // These build large HTML/SVG strings by hand — the tube sheet alone emits two
+  // nodes per tube, up to 1140 of them, and the probability plots iterate every
+  // observation. They were called inline in JSX, so paging the observations
+  // table re-ran all four on every click even though `run` never changes after
+  // the initial fetch.
+  //
+  // They sit above the early returns below because hooks must run in the same
+  // order on every render, which is also why each one has to tolerate `run`
+  // still being null on the first pass.
+  const gumbelSvg = useMemo(() => (run ? generateGumbelPlotSvg(run) : ''), [run]);
+  const cdfSvg = useMemo(() => (run ? generateCdfPlotSvg(run) : ''), [run]);
+  const summaryTableHtml = useMemo(() => (run ? generateInspectionSummaryTable(run) : ''), [run]);
+  const tubeSheetSvg = useMemo(() => (run ? generateTubeSheetMapSvg(run) : ''), [run]);
 
   if (isLoading) {
     return (
@@ -381,8 +395,8 @@ export default function ResultsPage() {
             </div>
 
             <div className="flex flex-col md:flex-row gap-6 justify-center items-center">
-              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateGumbelPlotSvg(run) }} />
-              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: generateCdfPlotSvg(run) }} />
+              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: gumbelSvg }} />
+              <div className="flex-1 flex justify-center" dangerouslySetInnerHTML={{ __html: cdfSvg }} />
             </div>
           </div>
         </div>
@@ -522,7 +536,7 @@ export default function ResultsPage() {
             <h3 className="text-lg font-bold text-gray-900 tracking-tight">Summary of Inspection Results</h3>
             <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Section 7.0 summary statistics</p>
           </div>
-          <div className="mt-4 overflow-x-auto w-full" dangerouslySetInnerHTML={{ __html: generateInspectionSummaryTable(run) }} />
+          <div className="mt-4 overflow-x-auto w-full" dangerouslySetInnerHTML={{ __html: summaryTableHtml }} />
         </div>
 
         {/* Tube Sheet Map */}
@@ -531,7 +545,7 @@ export default function ResultsPage() {
             <h3 className="text-lg font-bold text-gray-900 tracking-tight">Tube Sheet Layout Map</h3>
             <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">Section 8.0 Visual Map</p>
           </div>
-          <div className="mt-4 w-full overflow-x-auto flex justify-center" dangerouslySetInnerHTML={{ __html: generateTubeSheetMapSvg(run) }} />
+          <div className="mt-4 w-full overflow-x-auto flex justify-center" dangerouslySetInnerHTML={{ __html: tubeSheetSvg }} />
         </div>
       </div>
 
